@@ -1,0 +1,25 @@
+{% extends "base.html" %}{% block title %}Overview{% endblock %}
+{% block body %}
+<h1>Overview</h1>
+<table class="grid kv">
+<tr><th>Copies owned</th><td class="num">{{ totals.copies }}</td></tr>
+<tr><th>Distinct cards</th><td class="num">{{ totals.cards }}</td></tr>
+<tr><th>Locations</th><td class="num">{{ totals.locations }}</td></tr>
+<tr><th>Printings in cache</th><td class="num">{{ totals.printings }}</td></tr>
+<tr><th>Scryfall sync</th><td>{{ sync_status }}{% if last_sync_at %} <span class="muted">(last {{ last_sync_at }})</span>{% endif %} &middot; <a href="{{ url_for('system') }}">details</a></td></tr>
+</table>
+{% if not totals.printings %}
+<p class="flash error">The card database is empty. Run a Scryfall sync from the <a href="{{ url_for('system') }}">System</a> page before adding cards.</p>
+{% elif not locs %}
+<p>Start by creating a <a href="{{ url_for('locations_list') }}">location</a> (a binder, a box, ...), then <a href="{{ url_for('add') }}">add cards</a> to it.</p>
+{% endif %}
+<h2>Locations</h2>
+{% if locs %}
+<table class="grid">
+<tr><th>Name</th><th>Type</th><th>Copies</th></tr>
+{% for l in locs %}
+<tr><td><a href="{{ url_for('location_view', location_id=l.id) }}">{{ l.name }}</a></td><td>{{ l.type }}</td><td class="num">{{ l.cards }}</td></tr>
+{% endfor %}
+</table>
+{% else %}<p class="muted">No locations yet.</p>{% endif %}
+{% endblock %}

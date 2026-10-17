@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}{% endblock %} - FranticSearch</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<div id="top"><a class="logo" href="{{ url_for('index') }}">FranticSearch<small>v{{ version }} &middot; where are my cards?</small></a></div>
+<div id="nav">
+{% set ep = request.endpoint %}
+<a href="{{ url_for('index') }}" class="{{ 'on' if ep == 'index' }}">Overview</a>
+<a href="{{ url_for('collection') }}" class="{{ 'on' if ep in ('collection', 'card') }}">Collection</a>
+<a href="{{ url_for('add') }}" class="{{ 'on' if ep == 'add' }}">Add cards</a>
+<a href="{{ url_for('locations_list') }}" class="{{ 'on' if ep in ('locations_list', 'location_view') }}">Locations</a>
+<a href="{{ url_for('history') }}" class="{{ 'on' if ep == 'history' }}">History</a>
+<a href="{{ url_for('system') }}" class="{{ 'on' if ep == 'system' }}">System</a>
+</div>
+<div id="main">
+{% for cat, msg in get_flashed_messages(with_categories=true) %}
+<div class="flash {{ cat }}">{{ msg }}</div>
+{% endfor %}
+{% block body %}{% endblock %}
+</div>
+<div id="foot">Card data &amp; images &copy; Wizards of the Coast, via <a href="https://scryfall.com">Scryfall</a>. FranticSearch is unofficial Fan Content.</div>
+</body>
+</html>

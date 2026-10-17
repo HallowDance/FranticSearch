@@ -1,0 +1,20 @@
+{% extends "base.html" %}{% block title %}Add cards{% endblock %}
+{% block body %}
+<h1>Add cards</h1>
+<form method="get" action="{{ url_for('add') }}">
+<fieldset><legend>Find a card</legend>
+Name <input name="q" value="{{ q }}" size="32" autofocus> <button>Search</button>
+</fieldset>
+</form>
+{% if q %}
+{% if results %}
+<p class="muted">Pick a card, then choose the exact printing, finish and location on its page.</p>
+<table class="grid">
+<tr><th>Card</th><th>Cost</th><th>Type</th><th>Printings</th></tr>
+{% for r in results %}
+<tr><td><a href="{{ url_for('card', card_key=r.card_key) }}#add">{{ r.name }}</a></td><td class="mono">{{ r.mana_cost or '' }}</td><td>{{ r.type_line or '' }}</td><td class="num">{{ r.printings }}</td></tr>
+{% endfor %}
+</table>
+{% else %}<p>No card matches <b>{{ q }}</b>.</p>{% endif %}
+{% endif %}
+{% endblock %}

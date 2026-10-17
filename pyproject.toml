@@ -1,0 +1,27 @@
+[project]
+name = "franticsearch"
+version = "0.1.0"
+description = "Self-hosted MTG collection & deck manager where every card has a location"
+requires-python = ">=3.11"
+dependencies = [
+    "flask>=3.1,<4",
+    "ijson>=3.3,<4",
+    "requests>=2.32,<3",
+]
+
+[project.optional-dependencies]
+serve = ["gunicorn>=23,<27"]
+dev = ["pytest>=8,<10"]
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["franticsearch*"]
+
+[tool.setuptools.package-data]
+franticsearch = ["migrations/*.sql", "templates/*.html", "static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

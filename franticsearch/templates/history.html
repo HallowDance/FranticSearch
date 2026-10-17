@@ -1,0 +1,17 @@
+{% extends "base.html" %}{% import "macros.html" as m with context %}
+{% block title %}History{% endblock %}
+{% block body %}
+<h1>History</h1>
+<form method="get" action="{{ url_for('history') }}">
+Location <select name="location"><option value="">(any)</option>
+{% for l in locs %}<option value="{{ l.id }}" {{ 'selected' if location == l.id }}>{{ l.name }}</option>{% endfor %}
+</select> <button>Filter</button>
+</form>
+{% if rows %}
+<table class="grid">{{ m.movement_head() }}{% for h in rows %}{{ m.movement_row(h) }}{% endfor %}</table>
+<div class="pager">
+{% if page > 1 %}<a href="{{ url_for('history', location=location or '', page=page - 1) }}">&laquo; newer</a>{% endif %}
+{% if rows|length == page_size %}<a href="{{ url_for('history', location=location or '', page=page + 1) }}">older &raquo;</a>{% endif %}
+</div>
+{% else %}<p class="muted">No movements recorded.</p>{% endif %}
+{% endblock %}

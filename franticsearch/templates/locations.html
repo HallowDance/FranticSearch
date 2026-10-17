@@ -1,0 +1,21 @@
+{% extends "base.html" %}{% block title %}Locations{% endblock %}
+{% block body %}
+<h1>Locations</h1>
+{% if locs %}
+<table class="grid">
+<tr><th>Name</th><th>Type</th><th>Copies</th><th>Notes</th></tr>
+{% for l in locs %}
+<tr><td><a href="{{ url_for('location_view', location_id=l.id) }}">{{ l.name }}</a></td><td>{{ l.type }}</td><td class="num">{{ l.cards }}</td><td>{{ l.notes }}</td></tr>
+{% endfor %}
+</table>
+{% else %}<p class="muted">No locations yet.</p>{% endif %}
+<form method="post" action="{{ url_for('locations_create') }}">
+<fieldset><legend>New location</legend>
+Name <input name="name" size="24" required>
+Type <select name="type">{% for t in USER_TYPES %}<option>{{ t }}</option>{% endfor %}</select>
+Notes <input name="notes" size="30">
+<button>Create</button>
+<div class="muted">Deck locations are created together with decks.</div>
+</fieldset>
+</form>
+{% endblock %}

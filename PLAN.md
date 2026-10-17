@@ -24,13 +24,16 @@ A self-hosted MTG collection & deck manager built around one idea: **every physi
 | `printings` | Scryfall bulk cache: `scryfall_id` (PK), `oracle_id`, `name`, `set`, `set_name`, `collector_number`, `released_at`, `finishes`, `lang`, `mana_cost`, `cmc`, `colors`, `color_identity`, `type_line`, `oracle_text`, `legalities`, image URIs (incl. card faces). FTS index on `name`, `type_line`, `oracle_text` |
 | `locations` | `id`, `name`, `type`, `notes` |
 | `stock` | (`location_id`, `printing_id`, `finish`, `condition`, `lang`) → `qty` (> 0). **Single source of truth for physical whereabouts** |
-| `movements` | Append-only ledger: `id`, `ts`, `from_location`, `to_location`, printing key, `qty`, `reason` (`import` · `acquire` · `pull` · `return` · `adjust` · `sell`), `note`, `batch_id` |
+| `movements` | Append-only ledger: `id`, `ts`, `from_location`, `to_location`, printing key, `qty`, `reason` (`import` · `acquire` · `pull` · `return` · `move` · `adjust` · `sell`), `note`, `batch_id` |
 | `decks` | `id`, `name`, `format`, `location_id`, `notes` |
 | `deck_slots` | `deck_id`, printing key, `board` (`main` · `side` · `commander` · `maybe`), `qty_wanted`, `qty_proxy` |
 
 Rules:
 - `stock` and `movements` are always written in the same transaction; `stock` must equal the ledger's projection (a check command verifies this).
 - `acquire`/`import` have a null `from`; `sell`/removal have a null `to`.
+- A manual move between two non-deck locations is `move`; any move into a deck location is a `pull`, out of one a `return`.
+- Deck locations are only changed through their deck's pull/return lists, never by the manual move forms.
+- A location can be deleted only if it never held anything (the ledger refers to it); otherwise empty it and rename it.
 - `batch_id` groups one user action (e.g. "confirm pull list") so it can be undone as a unit.
 
 ### Derived deck state (computed, never stored)
@@ -84,13 +87,13 @@ Ledger view per card, per location, per deck. Undo the last batch by writing com
 
 ## Stack
 
-- **SvelteKit** (TypeScript) — UI + server routes in one app
-- **SQLite** via `better-sqlite3` + **Drizzle** ORM/migrations
-- **Scryfall bulk data** (`default_cards`) streamed into `printings` on first run and nightly; images hotlinked from Scryfall CDN. Respect Scryfall's API guidelines (bulk files, not per-card requests).
-- **Vitest** for domain logic (stock/ledger invariants, pull/return planning, import parsing); Playwright for a few end-to-end flows
-- **Docker** single container, DB in a mounted volume; backup = copy the DB file
+- **Python 3.11+ / Flask + Jinja**: server-rendered HTML forms, no JavaScript build step; deliberately plain 90s/00s FOSS look
+- **SQLite** via the standard library `sqlite3` (WAL mode); numbered plain-SQL migrations tracked in `PRAGMA user_version`
+- **Scryfall bulk data** (`default_cards`) streamed with `ijson` into `printings` on first run and re-checked daily (background thread); images hotlinked from Scryfall CDN. Follows Scryfall's API guidelines (bulk file, User-Agent + Accept headers)
+- **pytest** for domain logic (ledger invariants, pull/return planning, import parsing) and Flask test-client page tests
+- **Docker** single container running gunicorn (1 worker, threads), DB in a mounted volume; backup = copy the DB file
 
-Domain logic (pull/return planning, derived deck state, import parsing) lives in a framework-free `src/lib/domain/` module so it is unit-testable.
+Domain logic (`ledger.py`, later pull/return planning and import parsing) is framework-free and unit-tested; the Flask layer only parses forms and renders.
 
 ## Phases
 

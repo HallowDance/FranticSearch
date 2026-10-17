@@ -1,0 +1,136 @@
+[
+ {
+  "object": "card",
+  "id": "00000000-0000-0000-0000-000000000001",
+  "oracle_id": "aaaaaaaa-0000-0000-0000-000000000001",
+  "name": "Sol Ring",
+  "lang": "en",
+  "set": "c21",
+  "set_name": "Commander 2021",
+  "collector_number": "263",
+  "released_at": "2021-04-23",
+  "rarity": "uncommon",
+  "layout": "normal",
+  "finishes": [
+   "nonfoil"
+  ],
+  "cmc": 1.0,
+  "color_identity": [],
+  "legalities": {
+   "commander": "legal"
+  },
+  "mana_cost": "{1}",
+  "colors": [],
+  "type_line": "Artifact",
+  "oracle_text": "{T}: Add {C}{C}.",
+  "image_uris": {
+   "small": "https://cards.scryfall.io/small/x.jpg",
+   "normal": "https://cards.scryfall.io/normal/x.jpg"
+  }
+ },
+ {
+  "object": "card",
+  "id": "00000000-0000-0000-0000-000000000002",
+  "oracle_id": "aaaaaaaa-0000-0000-0000-000000000001",
+  "name": "Sol Ring",
+  "lang": "en",
+  "set": "cmm",
+  "set_name": "Commander Masters",
+  "collector_number": "410",
+  "released_at": "2023-08-04",
+  "rarity": "uncommon",
+  "layout": "normal",
+  "finishes": [
+   "nonfoil",
+   "foil",
+   "etched"
+  ],
+  "cmc": 1.0,
+  "color_identity": [],
+  "legalities": {
+   "commander": "legal"
+  },
+  "mana_cost": "{1}",
+  "colors": [],
+  "type_line": "Artifact",
+  "oracle_text": "{T}: Add {C}{C}."
+ },
+ {
+  "object": "card",
+  "id": "00000000-0000-0000-0000-000000000003",
+  "oracle_id": "aaaaaaaa-0000-0000-0000-000000000003",
+  "name": "Delver of Secrets // Insectile Aberration",
+  "lang": "en",
+  "set": "isd",
+  "set_name": "Innistrad",
+  "collector_number": "51",
+  "released_at": "2011-09-30",
+  "rarity": "uncommon",
+  "layout": "transform",
+  "finishes": [
+   "nonfoil",
+   "foil"
+  ],
+  "cmc": 1.0,
+  "color_identity": [
+   "U"
+  ],
+  "legalities": {
+   "commander": "legal"
+  },
+  "card_faces": [
+   {
+    "name": "Delver of Secrets",
+    "mana_cost": "{U}",
+    "type_line": "Creature \u2014 Human Wizard",
+    "oracle_text": "At the beginning of your upkeep, look at the top card of your library.",
+    "colors": [
+     "U"
+    ],
+    "image_uris": {
+     "small": "https://cards.scryfall.io/small/d1.jpg",
+     "normal": "https://cards.scryfall.io/normal/d1.jpg"
+    }
+   },
+   {
+    "name": "Insectile Aberration",
+    "mana_cost": "",
+    "type_line": "Creature \u2014 Human Insect",
+    "oracle_text": "Flying",
+    "colors": [
+     "U"
+    ]
+   }
+  ]
+ },
+ {
+  "object": "card",
+  "id": "00000000-0000-0000-0000-000000000004",
+  "oracle_id": "aaaaaaaa-0000-0000-0000-000000000004",
+  "name": "Lightning Bolt",
+  "lang": "en",
+  "set": "m10",
+  "set_name": "Magic 2010",
+  "collector_number": "146",
+  "released_at": "2009-07-17",
+  "rarity": "uncommon",
+  "layout": "normal",
+  "finishes": [
+   "nonfoil",
+   "foil"
+  ],
+  "cmc": 1.0,
+  "color_identity": [
+   "R"
+  ],
+  "legalities": {
+   "commander": "legal"
+  },
+  "mana_cost": "{R}",
+  "colors": [
+   "R"
+  ],
+  "type_line": "Instant",
+  "oracle_text": "Lightning Bolt deals 3 damage to any target."
+ }
+]

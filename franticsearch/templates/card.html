@@ -1,0 +1,58 @@
+{% extends "base.html" %}{% import "macros.html" as m with context %}
+{% block title %}{{ shown.name }}{% endblock %}
+{% block body %}
+<div class="cardbox">
+{% if shown.image_normal %}<img src="{{ shown.image_normal }}" alt="{{ shown.name }}" loading="lazy">{% endif %}
+<div class="muted">{{ shown.set_name }} ({{ shown.set_code|upper }}) #{{ shown.collector_number }}</div>
+</div>
+<h1>{{ shown.name }}</h1>
+<table class="kv">
+<tr><th>Cost</th><td class="mono">{{ shown.mana_cost or '-' }}</td></tr>
+<tr><th>Type</th><td>{{ shown.type_line or '' }}</td></tr>
+<tr><th>Text</th><td class="oracle">{{ shown.oracle_text or '' }}</td></tr>
+</table>
+
+<h2>Your copies</h2>
+{% if stock %}
+<table class="grid">
+<tr><th>Printing</th><th>Location</th><th>Qty</th><th>Actions</th></tr>
+{% for s in stock %}
+<tr>
+<td><a href="{{ url_for('card', card_key=card_key, printing=s.printing_id) }}">{{ s.set_code|upper }} #{{ s.collector_number }}</a> {{ m.key_tags(s) }}</td>
+<td><a href="{{ url_for('location_view', location_id=s.location_id) }}">{{ s.location_name }}</a> <span class="muted">({{ s.location_type }})</span></td>
+<td class="num">{{ s.qty }}</td>
+<td>{% if s.location_type == 'deck' %}<span class="muted">use the deck's pull/return lists</span>{% else %}{{ m.stock_actions(s, locs) }}{% endif %}</td>
+</tr>
+{% endfor %}
+</table>
+{% else %}<p class="muted">You don't own any copies.</p>{% endif %}
+
+<h2 id="add">Add copies</h2>
+{% if locs %}
+<form method="post" action="{{ url_for('stock_acquire') }}">
+<input type="hidden" name="next" value="{{ url_for('card', card_key=card_key) }}">
+<table class="kv">
+<tr><th>Printing</th><td><select name="printing_id">
+{% for p in printings %}<option value="{{ p.scryfall_id }}" {{ 'selected' if p.scryfall_id == shown.scryfall_id }}>{{ p.set_code|upper }} #{{ p.collector_number }} &mdash; {{ p.set_name }} ({{ (p.released_at or '')[:4] }}) [{{ (p.finishes|fromjson)|join('/') }}]{% if p.lang != 'en' %} {{ p.lang }}{% endif %}</option>{% endfor %}
+</select></td></tr>
+<tr><th>Finish</th><td><select name="finish">{% for fi in FINISHES %}<option>{{ fi }}</option>{% endfor %}</select> <span class="muted">must be one the printing exists in</span></td></tr>
+<tr><th>Quantity</th><td><input type="number" name="qty" value="1" min="1"></td></tr>
+<tr><th>Location</th><td><select name="location_id">{% for l in locs %}<option value="{{ l.id }}">{{ l.name }}</option>{% endfor %}</select></td></tr>
+<tr><th>Note</th><td><input name="note" size="40" placeholder="optional, e.g. bought at LGS"></td></tr>
+<tr><th></th><td><details><summary>Condition / language</summary>
+Condition <select name="condition">{% for c in CONDITIONS %}<option value="{{ c }}">{{ c }} &ndash; {{ CONDITION_NAMES[c] }}</option>{% endfor %}</select>
+Language <select name="lang">{% for code, lname in LANGUAGES.items() %}<option value="{{ code }}">{{ lname }}</option>{% endfor %}</select>
+</details></td></tr>
+<tr><th></th><td><button>Add to collection</button></td></tr>
+</table>
+</form>
+{% else %}
+<p>Create a <a href="{{ url_for('locations_list') }}">location</a> first.</p>
+{% endif %}
+
+{% if history %}
+<h2>Recent history</h2>
+<table class="grid">{{ m.movement_head() }}{% for h in history %}{{ m.movement_row(h) }}{% endfor %}</table>
+{% endif %}
+<div class="clear"></div>
+{% endblock %}
