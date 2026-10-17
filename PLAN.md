@@ -7,19 +7,21 @@ A self-hosted MTG collection & deck manager built around one idea: **every physi
 | Topic | Decision |
 |---|---|
 | Platform | Self-hosted web app, single user, SQLite; usable from desktop and phone browsers |
-| Copy model | Quantity per **printing key** per location. Key = Scryfall printing + finish (+ optional condition/lang, default NM/EN) |
+| Access | **LAN only, no auth** for now. Proper hosting + auth later — keep a single auth hook (SvelteKit `handle`) so it can be added without touching routes |
+| Deckbuilding | **In FranticSearch.** Decks are built and edited here; Moxfield deck import is for one-time migration only |
+| Copy model | Quantity per **printing key** per location. Key = Scryfall printing + finish + condition + language. Condition/language are optional and default to NM/EN — hidden in the UI unless set |
 | Locations | Flat, named, typed: `binder` · `box` · `deck` · `lent` · `other`. Each deck owns exactly one location |
 | Deck slots | Always an **exact printing** + finish |
 | Contention | **Strict**: a copy is in exactly one place. If the needed copies are all in other decks, the slot is short |
 | Deck ↔ collection | **Pull/return workflow**: a deck is a target list; stock only moves when you confirm a physical move |
 | Extras in scope | Moxfield/CSV import · proxies & shortfall/buy list |
-| Out of scope (for now) | Prices, card scanning, multi-user |
+| Out of scope (for now) | Prices, card scanning, multi-user, auth/public hosting, Moxfield re-sync |
 
 ## Data model
 
 | Table | Columns / purpose |
 |---|---|
-| `printings` | Scryfall bulk cache: `scryfall_id` (PK), `oracle_id`, `name`, `set`, `collector_number`, `finishes`, `lang`, `type_line`, image URIs. FTS index on `name` |
+| `printings` | Scryfall bulk cache: `scryfall_id` (PK), `oracle_id`, `name`, `set`, `set_name`, `collector_number`, `released_at`, `finishes`, `lang`, `mana_cost`, `cmc`, `colors`, `color_identity`, `type_line`, `oracle_text`, `legalities`, image URIs (incl. card faces). FTS index on `name`, `type_line`, `oracle_text` |
 | `locations` | `id`, `name`, `type`, `notes` |
 | `stock` | (`location_id`, `printing_id`, `finish`, `condition`, `lang`) → `qty` (> 0). **Single source of truth for physical whereabouts** |
 | `movements` | Append-only ledger: `id`, `ts`, `from_location`, `to_location`, printing key, `qty`, `reason` (`import` · `acquire` · `pull` · `return` · `adjust` · `sell`), `note`, `batch_id` |
@@ -61,7 +63,16 @@ Changing a slot's printing = old printing becomes excess (return) + new printing
 ### 4. Collection browsing
 Card → printings → per-location quantities. Filters: location, location type, "not in any deck", set, name search. Manual actions: add (acquire), move, adjust, remove (sell/trade).
 
-### 5. History & undo
+### 5. Deck editor & card search
+Decks are built here, so the editor is a first-class screen:
+- **Card search** over the local `printings` cache: name (FTS, fuzzy), type, oracle text, colors / color identity, mana value, set, format legality. Results grouped by card, expandable to printings.
+- **Ownership-aware**: each result shows owned qty and *free* qty (outside decks) per printing. Adding a card defaults to a free owned printing, else the newest printing; printing is always switchable.
+- Slot editing: qty, board, finish, proxy qty; change printing (triggers return + pull).
+- Live deck panel: per-slot status (in deck / short / proxy), counts per board, mana curve, color breakdown, format legality and commander color-identity warnings.
+- Paste a decklist (Moxfield/MTGA text) into an existing deck as a bulk add.
+- Later: Scryfall query syntax subset (`t:`, `o:`, `c<=`, `mv=` …) on top of the structured filters.
+
+### 6. History & undo
 Ledger view per card, per location, per deck. Undo the last batch by writing compensating movements (never deleting rows).
 
 ## Import / migration from Moxfield
@@ -87,13 +98,12 @@ Domain logic (pull/return planning, derived deck state, import parsing) lives in
 |---|---|---|
 | 1 | Foundation | Repo scaffold, Docker, schema + migrations, Scryfall sync, locations CRUD, stock + ledger with invariant check, collection browser, manual add/move/adjust |
 | 2 | Import | Moxfield collection CSV, deck text import, unresolved queue |
-| 3 | Decks | Slot editor (exact-printing search), derived deck state, pull list, return list, "mark as built" |
-| 4 | Shortfalls | Proxies, cross-deck buy list, exports |
-| 5 | Polish | Batch undo, ledger views, mobile layout pass, backup/restore |
-| later | — | Prices, scanning, Moxfield re-sync diff |
+| 3 | Card search | Local search over `printings` (name/type/text/colors/MV/set/legality), ownership-aware results |
+| 4 | Decks | Deck editor (slots, boards, proxies, printing switch), live stats + legality, derived deck state, pull list, return list, "mark as built" |
+| 5 | Shortfalls | Proxies, cross-deck buy list, exports |
+| 6 | Polish | Batch undo, ledger views, mobile layout pass, backup/restore |
+| later | — | Scryfall query syntax, public hosting + auth, prices, scanning |
 
 ## Open questions
 
-1. **Deckbuilding home** — keep building in Moxfield and re-import (needs a re-import diff that turns changes into pulls/returns), or build decks here (needs good card search; possibly Scryfall query syntax)?
-2. **Condition / language** — keep as optional defaulted fields in the printing key, or drop entirely?
-3. **Access** — LAN-only with no auth, or internet-exposed behind a single password?
+None blocking. Revisit at hosting time: auth method (single password vs. external SSO/VPN) and deployment target.
