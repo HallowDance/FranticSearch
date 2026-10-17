@@ -1,7 +1,8 @@
 {% extends "base.html" %}{% import "macros.html" as m with context %}
 {% block title %}{{ loc.name }}{% endblock %}
 {% block body %}
-<h1>{{ loc.name }} <span class="muted">({{ loc.type }})</span></h1>
+<h1>{{ loc.name }} <span class="muted">({{ loc.type }}{{ ', archived' if loc.archived }})</span></h1>
+{% if loc.archived %}<p class="flash error">This location is archived: hidden from lists and forms, kept in history.</p>{% endif %}
 {% if loc.notes %}<p>{{ loc.notes }}</p>{% endif %}
 <h2>Contents</h2>
 {% if stock %}
@@ -27,9 +28,20 @@ Type <select name="type">{% for t in USER_TYPES %}<option {{ 'selected' if t == 
 Notes <input name="notes" value="{{ loc.notes }}" size="30">
 <button>Save</button>
 </form>
-<form method="post" action="{{ url_for('location_delete', location_id=loc.id) }}" style="margin-top:6px">
-<button class="danger">Delete location</button> <span class="muted">only possible if it never held any cards</span>
+{% if loc.archived %}
+<form method="post" action="{{ url_for('location_archive', location_id=loc.id) }}" style="margin-top:6px">
+<input type="hidden" name="archived" value="0"><button>Unarchive</button>
 </form>
+{% elif not has_history %}
+<form method="post" action="{{ url_for('location_delete', location_id=loc.id) }}" style="margin-top:6px">
+<button class="danger">Delete location</button> <span class="muted">it never held any cards</span>
+</form>
+{% else %}
+<form method="post" action="{{ url_for('location_archive', location_id=loc.id) }}" style="margin-top:6px">
+<input type="hidden" name="archived" value="1"><button {{ 'disabled' if stock }}>Archive location</button>
+<span class="muted">{{ 'move all cards out first; ' if stock }}it has history, so it can't be deleted</span>
+</form>
+{% endif %}
 {% endif %}
 
 {% if history %}

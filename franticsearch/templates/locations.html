@@ -9,6 +9,14 @@
 {% endfor %}
 </table>
 {% else %}<p class="muted">No locations yet.</p>{% endif %}
+{% if archived %}
+<details><summary>Archived locations ({{ archived|length }})</summary>
+<table class="grid">
+<tr><th>Name</th><th>Type</th><th>Notes</th></tr>
+{% for l in archived %}<tr><td><a href="{{ url_for('location_view', location_id=l.id) }}">{{ l.name }}</a></td><td>{{ l.type }}</td><td>{{ l.notes }}</td></tr>{% endfor %}
+</table>
+</details>
+{% endif %}
 <form method="post" action="{{ url_for('locations_create') }}">
 <fieldset><legend>New location</legend>
 Name <input name="name" size="24" required>

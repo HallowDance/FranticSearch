@@ -117,3 +117,20 @@ def test_locations_crud(conn, locs):
         locations.delete(conn, locs["box"])
     locations.delete(conn, locs["binder"])
     assert locations.get(conn, locs["binder"]) is None
+
+
+def test_archive_locations(conn, locs):
+    ledger.acquire(conn, locs["box"], StockKey(BOLT), 1)
+    with pytest.raises(LedgerError, match="move all cards out"):
+        locations.set_archived(conn, locs["box"], True)
+    ledger.move(conn, locs["box"], locs["binder"], StockKey(BOLT), 1)
+    locations.set_archived(conn, locs["box"], True)
+    assert [l["id"] for l in locations.list_all(conn)] == [locs["binder"]]
+    assert [l["id"] for l in locations.list_all(conn, archived=True)] == [locs["box"]]
+    with pytest.raises(LedgerError, match="archived"):
+        ledger.move(conn, locs["binder"], locs["box"], StockKey(BOLT), 1)
+    with pytest.raises(LedgerError, match="archived"):
+        ledger.acquire(conn, locs["box"], StockKey(BOLT), 1)
+    locations.set_archived(conn, locs["box"], False)
+    ledger.move(conn, locs["binder"], locs["box"], StockKey(BOLT), 1)
+    assert ledger.check(conn) == []

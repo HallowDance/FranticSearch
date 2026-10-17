@@ -22,7 +22,7 @@ A self-hosted MTG collection & deck manager built around one idea: **every physi
 | Table | Columns / purpose |
 |---|---|
 | `printings` | Scryfall bulk cache: `scryfall_id` (PK), `oracle_id`, `name`, `set`, `set_name`, `collector_number`, `released_at`, `finishes`, `lang`, `mana_cost`, `cmc`, `colors`, `color_identity`, `type_line`, `oracle_text`, `legalities`, image URIs (incl. card faces). FTS index on `name`, `type_line`, `oracle_text` |
-| `locations` | `id`, `name`, `type`, `notes` |
+| `locations` | `id`, `name`, `type`, `notes`, `archived` |
 | `stock` | (`location_id`, `printing_id`, `finish`, `condition`, `lang`) → `qty` (> 0). **Single source of truth for physical whereabouts** |
 | `movements` | Append-only ledger: `id`, `ts`, `from_location`, `to_location`, printing key, `qty`, `reason` (`import` · `acquire` · `pull` · `return` · `move` · `adjust` · `sell`), `note`, `batch_id` |
 | `decks` | `id`, `name`, `format`, `location_id`, `notes` |
@@ -33,7 +33,7 @@ Rules:
 - `acquire`/`import` have a null `from`; `sell`/removal have a null `to`.
 - A manual move between two non-deck locations is `move`; any move into a deck location is a `pull`, out of one a `return`.
 - Deck locations are only changed through their deck's pull/return lists, never by the manual move forms.
-- A location can be deleted only if it never held anything (the ledger refers to it); otherwise empty it and rename it.
+- A location can be deleted only if it never held anything (the ledger refers to it). Otherwise, once empty, it can be **archived**: hidden from lists and forms, kept in history, restorable. Nothing can be added to an archived location.
 - `batch_id` groups one user action (e.g. "confirm pull list") so it can be undone as a unit.
 
 ### Derived deck state (computed, never stored)

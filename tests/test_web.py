@@ -48,3 +48,19 @@ def test_redirect_next_must_be_local(client, conn):
     r = client.post("/stock/sell", data={"printing_id": "x", "qty": "1", "location_id": "1",
                                          "next": "//evil.example/"})
     assert r.headers["Location"] == "/collection"
+
+
+def test_archive_via_web(client, conn):
+    loc = locations.create(conn, "Old binder", "binder")
+    ledger.acquire(conn, loc, StockKey(SOL_C21), 1)
+    assert b"Archive location" in client.get(f"/locations/{loc}").data
+    r = client.post(f"/locations/{loc}/archive", data={"archived": "1"}, follow_redirects=True)
+    assert b"move all cards out" in r.data
+    ledger.sell(conn, loc, StockKey(SOL_C21), 1)
+    r = client.post(f"/locations/{loc}/archive", data={"archived": "1"}, follow_redirects=True)
+    assert b"Location archived" in r.data and b"Unarchive" in r.data
+    page = client.get("/locations").data
+    assert b"Archived locations (1)" in page
+    assert b"Old binder" not in client.get(f"/card/{SOL_ORACLE}").data.split(b"Add copies")[1].split(b"Recent history")[0]
+    r = client.post(f"/locations/{loc}/archive", data={"archived": "0"}, follow_redirects=True)
+    assert b"Location restored" in r.data

@@ -22,11 +22,15 @@ def _clean(name: str, type_: str) -> str:
     return name
 
 
-def list_all(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+def list_all(conn: sqlite3.Connection, archived: bool | None = False) -> list[sqlite3.Row]:
+    """Locations with copy counts. ``archived``: False = active only, True = archived only,
+    None = both."""
+    where = "" if archived is None else f"WHERE l.archived = {int(archived)}"
     return conn.execute(
-        """SELECT l.*, COALESCE(SUM(s.qty), 0) AS cards, COUNT(s.printing_id) AS rows_
-             FROM locations l LEFT JOIN stock s ON s.location_id = l.id
-            GROUP BY l.id ORDER BY l.type = 'deck', l.name COLLATE NOCASE"""
+        f"""SELECT l.*, COALESCE(SUM(s.qty), 0) AS cards, COUNT(s.printing_id) AS rows_
+              FROM locations l LEFT JOIN stock s ON s.location_id = l.id
+              {where}
+             GROUP BY l.id ORDER BY l.type = 'deck', l.name COLLATE NOCASE"""
     ).fetchall()
 
 
@@ -64,21 +68,42 @@ def update(conn: sqlite3.Connection, location_id: int, name: str, type_: str, no
         raise LedgerError(f"a location named {name!r} already exists") from None
 
 
+def has_history(conn: sqlite3.Connection, location_id: int) -> bool:
+    return conn.execute(
+        "SELECT 1 FROM movements WHERE from_location_id = ? OR to_location_id = ? LIMIT 1",
+        (location_id, location_id),
+    ).fetchone() is not None
+
+
+def set_archived(conn: sqlite3.Connection, location_id: int, archived: bool) -> None:
+    """Archive (hide) an empty location, or bring it back. History is untouched."""
+    loc = get(conn, location_id)
+    if loc is None:
+        raise LedgerError("unknown location")
+    if loc["type"] == "deck":
+        raise LedgerError("deck locations are archived through their deck")
+    with transaction(conn):
+        if archived and conn.execute(
+            "SELECT 1 FROM stock WHERE location_id = ? LIMIT 1", (location_id,)
+        ).fetchone():
+            raise LedgerError("move all cards out before archiving")
+        conn.execute(
+            "UPDATE locations SET archived = ? WHERE id = ?", (int(archived), location_id)
+        )
+
+
 def delete(conn: sqlite3.Connection, location_id: int) -> None:
-    """Only locations that never held anything can be deleted (the ledger refers to them)."""
+    """Only locations that never held anything can be deleted (the ledger refers to them);
+    used locations are archived instead."""
     loc = get(conn, location_id)
     if loc is None:
         raise LedgerError("unknown location")
     if loc["type"] == "deck":
         raise LedgerError("deck locations are deleted through their deck")
     with transaction(conn):
-        used = conn.execute(
-            "SELECT 1 FROM movements WHERE from_location_id = ? OR to_location_id = ? LIMIT 1",
-            (location_id, location_id),
-        ).fetchone()
-        if used:
+        if has_history(conn, location_id):
             raise LedgerError(
                 "this location has history in the ledger and cannot be deleted; "
-                "move its cards out and rename it instead"
+                "move its cards out and archive it instead"
             )
         conn.execute("DELETE FROM locations WHERE id = ?", (location_id,))

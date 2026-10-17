@@ -275,7 +275,10 @@ def _register_routes(app: Flask) -> None:
 
     @app.get("/locations")
     def locations_list():
-        return render_template("locations.html", locs=locations.list_all(g.db))
+        return render_template(
+            "locations.html", locs=locations.list_all(g.db),
+            archived=locations.list_all(g.db, archived=True),
+        )
 
     @app.post("/locations")
     def locations_create():
@@ -296,7 +299,7 @@ def _register_routes(app: Flask) -> None:
             abort(404)
         return render_template(
             "location.html", loc=loc, stock=queries.location_stock(conn, location_id),
-            locs=_manual_locations(conn),
+            locs=_manual_locations(conn), has_history=locations.has_history(conn, location_id),
             history=queries.history(conn, location_id=location_id)[:20],
         )
 
@@ -306,6 +309,16 @@ def _register_routes(app: Flask) -> None:
         try:
             locations.update(g.db, location_id, f.get("name", ""), f.get("type", ""), f.get("notes", ""))
             flash("Location saved.", "ok")
+        except LedgerError as e:
+            flash(str(e), "error")
+        return redirect(url_for("location_view", location_id=location_id))
+
+    @app.post("/locations/<int:location_id>/archive")
+    def location_archive(location_id: int):
+        archive = request.form.get("archived") == "1"
+        try:
+            locations.set_archived(g.db, location_id, archive)
+            flash("Location archived." if archive else "Location restored.", "ok")
         except LedgerError as e:
             flash(str(e), "error")
         return redirect(url_for("location_view", location_id=location_id))
@@ -329,7 +342,7 @@ def _register_routes(app: Flask) -> None:
         page = _int_arg("page", 1) or 1
         return render_template(
             "history.html", rows=queries.history(conn, location_id=loc, page=page),
-            locs=locations.list_all(conn), location=loc, page=page,
+            locs=locations.list_all(conn, archived=None), location=loc, page=page,
             page_size=queries.PAGE_SIZE,
         )
 

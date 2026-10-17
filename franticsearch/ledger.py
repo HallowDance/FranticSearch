@@ -122,6 +122,8 @@ def _record(
         _change(conn, from_id, key, -qty)
     if to_id is not None:
         _location_type(conn, to_id)
+        if conn.execute("SELECT archived FROM locations WHERE id = ?", (to_id,)).fetchone()[0]:
+            raise LedgerError("that location is archived; unarchive it first")
         _change(conn, to_id, key, qty)
     conn.execute(
         "INSERT INTO movements(batch_id, from_location_id, to_location_id, printing_id,"
