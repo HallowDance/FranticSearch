@@ -72,7 +72,8 @@ def test_import_pages_and_deck_flow(client, conn):
     r = client.post("/import/deck", data={"text": "1 Sol Ring\n1 Black Lotus\n\n1 Lightning Bolt",
                                           "name": "Burn", "format": "commander",
                                           "after_blank": "commander"}, follow_redirects=True)
-    assert b"Created deck Burn with 2 cards" in r.data and b"no card named" in r.data
+    assert b"Created deck Burn with 2 cards; commander: Lightning Bolt." in r.data
+    assert b"no card named" in r.data
     deck_id = conn.execute("SELECT id FROM decks").fetchone()[0]
     page = client.get(f"/decks/{deck_id}").data
     assert b"Commander (1)" in page and b"Lightning Bolt" in page and b"Delete deck" in page

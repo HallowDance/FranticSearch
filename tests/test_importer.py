@@ -57,6 +57,19 @@ def test_parse_section_headers_win_over_blank_lines():
         "commander", "main", "main", "side", "maybe"]
 
 
+def test_parse_moxfield_export_with_sets_lists_commander_first():
+    text = "1 Millicent, Restless Revenant (VOC) 1 *F*\n1 Sol Ring (VOC) 168\n11 Island (VOW) 399\n"
+    boards = [l.board for l in importer.parse_deck_text(text, first_is_commander=True)]
+    assert boards == ["commander", "main", "main"]
+    assert {l.board for l in importer.parse_deck_text(text)} == {"main"}  # not a commander deck
+    # a blank line or headers mean the list says where the commander is
+    blank = "1 Sol Ring\n\n1 Millicent, Restless Revenant"
+    assert [l.board for l in importer.parse_deck_text(blank, first_is_commander=True)] == [
+        "main", "commander"]
+    headed = "Deck\n1 Sol Ring\n1 Island"
+    assert {l.board for l in importer.parse_deck_text(headed, first_is_commander=True)} == {"main"}
+
+
 def test_parse_flags_unreadable_lines():
     (line,) = importer.parse_deck_text("Sol Ring without a count")
     assert line.problem == "unreadable line"
@@ -191,6 +204,15 @@ def test_import_deck_creates_deck_location_and_slots(conn):
     assert any(s["printing_id"] == SOL_CMM and s["finish"] == "etched"
                for s in decks.slots(conn, deck["id"]))
     assert decks.list_all(conn)[0]["unresolved"] == 0
+
+
+def test_commander_format_takes_first_line_as_commander(conn):
+    iid = importer.import_deck(conn, "1 Delver of Secrets (ISD) 51 *F*\n1 Sol Ring (C21) 263", "A",
+                               "commander")
+    deck_id = importer.get_import(conn, iid)["deck_id"]
+    assert decks.commander_names(conn, deck_id) == ["Delver of Secrets // Insectile Aberration"]
+    iid = importer.import_deck(conn, "1 Delver of Secrets (ISD) 51\n1 Sol Ring (C21) 263", "B", "modern")
+    assert decks.commander_names(conn, importer.get_import(conn, iid)["deck_id"]) == []
 
 
 def test_deck_import_duplicates_and_delete(conn):

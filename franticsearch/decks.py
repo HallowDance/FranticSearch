@@ -20,6 +20,9 @@ FORMATS = (
     "paupercommander", "oathbreaker", "brawl", "standardbrawl", "premodern", "oldschool",
     "predh", "duel",
 )
+# Formats played with a commander (the deck import looks for one).
+COMMANDER_FORMATS = ("commander", "paupercommander", "oathbreaker", "brawl", "standardbrawl",
+                     "predh", "duel")
 
 
 def create(conn: sqlite3.Connection, name: str, format_: str = "", notes: str = "") -> int:
@@ -59,6 +62,12 @@ def add_slot(conn: sqlite3.Connection, deck_id: int, key: StockKey, board: str, 
             " DO UPDATE SET qty_wanted = qty_wanted + excluded.qty_wanted",
             (deck_id, *key.as_tuple(), board, qty),
         )
+
+
+def commander_names(conn: sqlite3.Connection, deck_id: int) -> list[str]:
+    return [r[0] for r in conn.execute(
+        "SELECT p.name FROM deck_slots ds JOIN printings p ON p.scryfall_id = ds.printing_id"
+        " WHERE ds.deck_id = ? AND ds.board = 'commander' ORDER BY p.name", (deck_id,))]
 
 
 def get(conn: sqlite3.Connection, deck_id: int) -> sqlite3.Row | None:

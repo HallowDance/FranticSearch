@@ -393,7 +393,9 @@ def _register_routes(app: Flask) -> None:
             flash(str(e), "error")
             return redirect(url_for("import_index"))
         imp = importer.get_import(conn, import_id)
-        flash(f"Created deck {imp['deck_name']} with {imp['imported']} cards."
+        cmd = decks.commander_names(conn, imp["deck_id"])
+        flash(f"Created deck {imp['deck_name']} with {imp['imported']} cards"
+              + (f"; commander: {' & '.join(cmd)}." if cmd else "; no commander.")
               + (f" {imp['open']} line(s) need a decision below." if imp["open"] else ""), "ok")
         return redirect(url_for("import_view", import_id=import_id))
 
@@ -403,7 +405,10 @@ def _register_routes(app: Flask) -> None:
         imp = importer.get_import(conn, import_id)
         if imp is None:
             abort(404)
-        return render_template("import_view.html", imp=imp, rows=importer.unresolved(conn, import_id))
+        return render_template(
+            "import_view.html", imp=imp, rows=importer.unresolved(conn, import_id),
+            commanders=decks.commander_names(conn, imp["deck_id"]) if imp["deck_id"] else [],
+        )
 
     @app.get("/import/line/<int:uid>")
     def import_fix(uid: int):

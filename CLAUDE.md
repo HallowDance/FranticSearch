@@ -53,7 +53,7 @@ Keep domain logic framework-free (unit-testable) and the Flask layer thin.
 ## Status
 
 - **Phase 1 (foundation)** is implemented on branch `phase-1`, PR #1.
-- **Phase 2 (import)** is on branch `phase-2` (branched from `phase-1`). 47 tests pass. Deck import verified with a real Moxfield export (100/100 resolved). The collection CSV parser is built from Moxfield's documented header only: **verify with a real export**.
+- **Phase 2 (import)** is on branch `phase-2` (branched from `phase-1`). 49 tests pass. Deck import verified with both Moxfield text exports (plain, and with set codes: 100/100 resolved to the exact printings). The collection CSV parser is built from Moxfield's documented header only: **verify with a real export**.
 - Live Scryfall sync verified 2026-10-18 (CLI and gunicorn background auto-sync from an empty DB: status `idle`, 118,893 printings, check OK). Scryfall had dropped `download_uri` (JSON array) for `jsonl_download_uri` (gzipped JSONL); the importer handles both.
 - **Still unverified**: `docker compose up --build` itself (no container runtime on the dev machine). The Dockerfile's steps were replayed outside a container (non-editable install, its gunicorn CMD, all pages 200), so what remains is the image build and the `./data` volume.
 - Next: Phase 3, card search (see PLAN.md § Phases).

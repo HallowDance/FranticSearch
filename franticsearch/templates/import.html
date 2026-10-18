@@ -11,7 +11,7 @@
 <tr><th>Deck list</th><td><textarea name="text" rows="10" cols="50" placeholder="1 Sol Ring&#10;1 Arcane Signet (C21) 263 *F*&#10;...&#10;&#10;1 Millicent, Restless Revenant"></textarea><br>
 or a file: <input type="file" name="file" accept=".txt,text/plain"></td></tr>
 <tr><th>After a blank line</th><td><select name="after_blank">{% for b in BOARDS %}<option value="{{ b }}">{{ BOARD_NAMES[b] }}</option>{% endfor %}</select>
-<div class="muted">Moxfield's plain export lists the main deck, a blank line, then the commander. Section headers ("Sideboard", "Commander", ...) override this.</div></td></tr>
+<div class="muted">Moxfield's plain export lists the main deck, a blank line, then the commander. Its export with set codes has no blank line and lists the commander first: for commander formats, that first card becomes the commander. Section headers ("Sideboard", "Commander", ...) override both.</div></td></tr>
 <tr><th></th><td><button>Import deck</button>
 <div class="muted">Lines without a set get your free owned printing if you have one, else the newest regular paper printing. Cards are not moved into the deck yet ("mark as built" comes with the deck editor).</div></td></tr>
 </table>

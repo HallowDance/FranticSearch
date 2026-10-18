@@ -63,12 +63,17 @@ _SECTIONS = {
 }
 
 
-def parse_deck_text(text: str, after_blank: str = "commander") -> list[Line]:
+def parse_deck_text(
+    text: str, after_blank: str = "commander", first_is_commander: bool = False
+) -> list[Line]:
     """Parse a Moxfield/MTGA-style deck list.
 
     Section headers ("Commander", "Sideboard:", "//Maybeboard" ...) set the board.
     Without any headers, cards before the first blank line are the main deck and
-    cards after it go to ``after_blank`` (Moxfield puts the commander there).
+    cards after it go to ``after_blank`` (Moxfield's plain export puts the
+    commander there). With neither headers nor a blank line, Moxfield's export
+    with set codes lists the commander first: ``first_is_commander`` makes the
+    first card the commander in that case.
     """
     if after_blank not in decks.BOARDS:
         raise ImportFailed(f"unknown board {after_blank!r}")
@@ -97,7 +102,11 @@ def parse_deck_text(text: str, after_blank: str = "commander") -> list[Line]:
             finish={"F": "foil", "E": "etched"}.get(flag) if flag else None,
             board=board,
         ))
-    return [l for l in lines if l.qty > 0]
+    lines = [l for l in lines if l.qty > 0]
+    cards = [l for l in lines if not l.problem]
+    if first_is_commander and not has_headers and cards and all(l.board == "main" for l in lines):
+        cards[0].board = "commander"
+    return lines
 
 
 def _section(s: str) -> str | None:
@@ -367,7 +376,7 @@ def import_deck(
     normalized = "\n".join(l.rstrip() for l in text.replace("\r\n", "\n").strip().split("\n"))
     sha = _sha(normalized.encode())
     _check_new(conn, sha)
-    lines = parse_deck_text(normalized, after_blank)
+    lines = parse_deck_text(normalized, after_blank, first_is_commander=format_ in decks.COMMANDER_FORMATS)
     if not lines:
         raise ImportFailed("no cards found in the deck list")
     with transaction(conn):
