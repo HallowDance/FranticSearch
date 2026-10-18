@@ -1,0 +1,39 @@
+{% extends "base.html" %}{% block title %}Fix line {{ u.line_no }}{% endblock %}
+{% block body %}
+<h1>Fix line {{ u.line_no }} of import #{{ imp.id }}</h1>
+<table class="grid kv">
+<tr><th>As written</th><td class="mono">{{ u.raw }}</td></tr>
+<tr><th>Problem</th><td>{{ u.problem }}</td></tr>
+<tr><th>Goes to</th><td>{% if imp.kind == 'deck' %}{{ imp.deck_name }}, {{ BOARD_NAMES[u.board or 'main'] }}{% else %}{{ imp.location_name }}{% endif %}</td></tr>
+</table>
+{% if u.status != 'open' %}<p class="flash error">This line is already {{ u.status }}.</p>{% else %}
+<form method="get" action="{{ url_for('import_fix', uid=u.id) }}">
+<fieldset><legend>1. Find the card</legend>
+Name <input name="q" value="{{ q }}" size="32"> <button>Search</button>
+</fieldset>
+</form>
+{% if results %}
+<table class="grid">
+<tr><th>Card</th><th>Type</th><th>Printings</th></tr>
+{% for r in results %}<tr><td><a href="{{ url_for('import_fix', uid=u.id, card=r.card_key, q=q) }}">{{ r.name }}</a></td><td>{{ r.type_line or '' }}</td><td class="num">{{ r.printings }}</td></tr>{% endfor %}
+</table>
+{% elif q and not printings %}<p>No card matches <b>{{ q }}</b>.</p>{% endif %}
+{% if printings %}
+<form method="post" action="{{ url_for('import_fix_post', uid=u.id) }}">
+<fieldset><legend>2. Pick the printing: {{ printings[0].name }}</legend>
+<table class="kv">
+<tr><th>Printing</th><td><select name="printing_id">
+{% for p in printings %}<option value="{{ p.scryfall_id }}" {{ 'selected' if p.set_code == u.set_code and p.collector_number == u.collector_number }}>{{ p.set_code|upper }} #{{ p.collector_number }} &mdash; {{ p.set_name }} ({{ (p.released_at or '')[:4] }}) [{{ (p.finishes|fromjson)|join('/') }}]{% if p.lang != 'en' %} {{ p.lang }}{% endif %}</option>{% endfor %}
+</select></td></tr>
+<tr><th>Finish</th><td><select name="finish">{% for fi in FINISHES %}<option {{ 'selected' if fi == (u.finish or 'nonfoil') }}>{{ fi }}</option>{% endfor %}</select></td></tr>
+<tr><th>Condition</th><td><select name="condition">{% for c in CONDITIONS %}<option value="{{ c }}" {{ 'selected' if c == u.condition }}>{{ CONDITION_NAMES[c] }}</option>{% endfor %}</select></td></tr>
+<tr><th>Language</th><td><select name="lang">{% for code, lname in LANGUAGES.items() %}<option value="{{ code }}" {{ 'selected' if code == u.lang }}>{{ lname }}</option>{% endfor %}</select></td></tr>
+<tr><th>Quantity</th><td><input type="number" name="qty" value="{{ u.qty }}" min="1"></td></tr>
+<tr><th></th><td><button>Use this printing</button> <a href="{{ url_for('import_fix', uid=u.id, q=q) }}">back to results</a></td></tr>
+</table>
+</fieldset>
+</form>
+{% endif %}
+{% endif %}
+<p><a href="{{ url_for('import_view', import_id=imp.id) }}">&larr; Import #{{ imp.id }}</a></p>
+{% endblock %}

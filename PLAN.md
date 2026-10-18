@@ -85,6 +85,16 @@ Ledger view per card, per location, per deck. Undo the last batch by writing com
 3. **"Mark as built"** per imported deck: confirms the cards physically live in that deck → moves matching stock from non-deck locations into the deck location; leftovers show as short (proxy or buy). Surfaces cases where Moxfield double-counted a card across decks.
 4. Importing is idempotent per file (hash recorded) to prevent accidental double imports.
 
+Decided for phase 2 (2026-10-18):
+- **Duplicates are always refused** (sha256 of the CSV bytes / of the deck text with normalised line endings), no override. Deleting an imported deck deletes its import record too, so that list can be imported again.
+- **Proxy rows** in the collection CSV are skipped (counted in the import summary); proxies belong on deck slots.
+- **Deck text**: Moxfield's plain export is `qty name` lines, a blank line, then the commander. Without section headers, lines after the first blank line go to a board chosen on the import form (default: commander); headers (`Commander`, `Sideboard:`, `//Maybeboard` …) override. `(SET) number` and `*F*`/`*E*` are honoured when present.
+- **Default printing** for lines without a set: a free owned printing (most copies outside decks), else the newest *released paper* printing, ranking Secret Lair / The List / joke sets below regular sets and never picking tokens, art cards, oversized or digital-only printings. Names match the full name or the front face.
+- Collection CSV columns are matched by name (Moxfield's documented header plus common aliases); unreadable count/foil/condition/language values send the row to the unresolved queue instead of being guessed.
+- Unresolved queue: per line, *fix* (search card → pick printing, finish, condition, language, qty; collection lines are acquired with reason `import`, deck lines become slots) or *dismiss*.
+- Collection imports go into one chosen non-deck location; "Unsorted" (a box) is created on first use.
+- Imported decks are **read-only** until phase 4: Decks list + deck page (slots per board with in-deck / free / where / any-printing counts) and delete (only while no cards were ever moved into the deck). The deck's location has the deck's name.
+
 ## Stack
 
 - **Python 3.11+ / Flask + Jinja**: server-rendered HTML forms, no JavaScript build step; deliberately plain 90s/00s FOSS look

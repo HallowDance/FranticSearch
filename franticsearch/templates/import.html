@@ -1,0 +1,48 @@
+{% extends "base.html" %}{% block title %}Import{% endblock %}
+{% block body %}
+<h1>Import from Moxfield</h1>
+<p class="muted">Each file or deck list can be imported only once. Lines that can't be matched to a printing wait in the import's queue for you to fix or dismiss.</p>
+
+<form method="post" action="{{ url_for('import_deck') }}" enctype="multipart/form-data">
+<fieldset><legend>Deck list &rarr; new deck</legend>
+<table class="kv">
+<tr><th>Deck name</th><td><input name="name" size="32" maxlength="100"> <span class="muted">blank = file name</span></td></tr>
+<tr><th>Format</th><td><select name="format">{% for fmt in FORMATS %}<option value="{{ fmt }}" {{ 'selected' if fmt == 'commander' }}>{{ fmt or '(unspecified)' }}</option>{% endfor %}</select></td></tr>
+<tr><th>Deck list</th><td><textarea name="text" rows="10" cols="50" placeholder="1 Sol Ring&#10;1 Arcane Signet (C21) 263 *F*&#10;...&#10;&#10;1 Millicent, Restless Revenant"></textarea><br>
+or a file: <input type="file" name="file" accept=".txt,text/plain"></td></tr>
+<tr><th>After a blank line</th><td><select name="after_blank">{% for b in BOARDS %}<option value="{{ b }}">{{ BOARD_NAMES[b] }}</option>{% endfor %}</select>
+<div class="muted">Moxfield's plain export lists the main deck, a blank line, then the commander. Section headers ("Sideboard", "Commander", ...) override this.</div></td></tr>
+<tr><th></th><td><button>Import deck</button>
+<div class="muted">Lines without a set get your free owned printing if you have one, else the newest regular paper printing. Cards are not moved into the deck yet ("mark as built" comes with the deck editor).</div></td></tr>
+</table>
+</fieldset>
+</form>
+
+<form method="post" action="{{ url_for('import_collection') }}" enctype="multipart/form-data">
+<fieldset><legend>Collection CSV &rarr; a location</legend>
+<table class="kv">
+<tr><th>CSV file</th><td><input type="file" name="file" accept=".csv,text/csv" required> <span class="muted">Moxfield: Collection &rarr; Export &rarr; CSV</span></td></tr>
+<tr><th>Into</th><td><select name="location_id">
+{% if not has_unsorted %}<option value="new">{{ unsorted }} (new box)</option>{% endif %}
+{% for l in locs %}<option value="{{ l.id }}" {{ 'selected' if l.name|lower == unsorted|lower }}>{{ l.name }} ({{ l.type }})</option>{% endfor %}
+</select></td></tr>
+<tr><th></th><td><button>Import collection</button> <span class="muted">proxies are skipped</span></td></tr>
+</table>
+</fieldset>
+</form>
+
+<h2>Past imports</h2>
+{% if imports %}
+<table class="grid">
+<tr><th>#</th><th>When (UTC)</th><th>What</th><th>Into</th><th>Lines</th><th>Imported</th><th>Open</th></tr>
+{% for i in imports %}
+<tr><td><a href="{{ url_for('import_view', import_id=i.id) }}">{{ i.id }}</a></td>
+<td class="mono">{{ i.ts[:16].replace('T', ' ') }}</td>
+<td>{{ i.kind }}{% if i.filename %} <span class="muted">{{ i.filename }}</span>{% endif %}</td>
+<td>{% if i.kind == 'deck' %}<a href="{{ url_for('deck_view', deck_id=i.deck_id) }}">{{ i.deck_name }}</a>{% else %}<a href="{{ url_for('location_view', location_id=i.location_id) }}">{{ i.location_name }}</a>{% endif %}</td>
+<td class="num">{{ i.lines }}</td><td class="num">{{ i.imported }}</td>
+<td class="num">{% if i.open %}<b>{{ i.open }}</b>{% else %}0{% endif %}</td></tr>
+{% endfor %}
+</table>
+{% else %}<p class="muted">Nothing imported yet.</p>{% endif %}
+{% endblock %}

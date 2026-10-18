@@ -31,7 +31,14 @@ def connect(path: str | Path) -> sqlite3.Connection:
 
 @contextmanager
 def transaction(conn: sqlite3.Connection) -> Iterator[sqlite3.Connection]:
-    """BEGIN IMMEDIATE ... COMMIT, rolling back on any exception."""
+    """BEGIN IMMEDIATE ... COMMIT, rolling back on any exception.
+
+    Re-entrant: inside an open transaction it just joins it, so domain functions
+    can be combined into one atomic unit (the outermost block commits).
+    """
+    if conn.in_transaction:
+        yield conn
+        return
     conn.execute("BEGIN IMMEDIATE")
     try:
         yield conn

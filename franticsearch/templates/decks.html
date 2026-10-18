@@ -1,0 +1,13 @@
+{% extends "base.html" %}{% block title %}Decks{% endblock %}
+{% block body %}
+<h1>Decks</h1>
+{% if decks %}
+<table class="grid">
+<tr><th>Deck</th><th>Format</th><th>Cards</th><th>Unresolved</th></tr>
+{% for d in decks %}
+<tr><td><a href="{{ url_for('deck_view', deck_id=d.id) }}">{{ d.name }}</a></td><td>{{ d.format or '-' }}</td><td class="num">{{ d.cards }}</td><td class="num">{% if d.unresolved %}<b>{{ d.unresolved }}</b>{% else %}0{% endif %}</td></tr>
+{% endfor %}
+</table>
+{% else %}<p class="muted">No decks yet.</p>{% endif %}
+<p>Decks are created by <a href="{{ url_for('import_index') }}">importing a deck list</a>. The deck editor, pull and return lists come later.</p>
+{% endblock %}

@@ -14,26 +14,20 @@ from flask import (
     Flask, abort, flash, g, redirect, render_template, request, url_for,
 )
 
-from . import __version__, db, ledger, locations, queries, scryfall
-from .ledger import CONDITION_NAMES, CONDITIONS, FINISHES, LedgerError, StockKey
+from . import __version__, db, decks, importer, ledger, locations, queries, scryfall
+from .ledger import CONDITION_NAMES, CONDITIONS, FINISHES, LANGUAGES, LedgerError, StockKey
 
 log = logging.getLogger(__name__)
 
-# Scryfall language codes, in the order Scryfall lists them.
-LANGUAGES = {
-    "en": "English", "es": "Spanish", "fr": "French", "de": "German", "it": "Italian",
-    "pt": "Portuguese", "ja": "Japanese", "ko": "Korean", "ru": "Russian",
-    "zhs": "Simplified Chinese", "zht": "Traditional Chinese", "he": "Hebrew",
-    "la": "Latin", "grc": "Ancient Greek", "ar": "Arabic", "sa": "Sanskrit",
-    "ph": "Phyrexian", "qya": "Quenya",
-}
-
+# Default destination for collection imports (created on first use).
+UNSORTED = "Unsorted"
 
 def create_app(config: dict | None = None) -> Flask:
     app = Flask(__name__)
     app.config.update(
         DATABASE=os.environ.get("FS_DB", os.path.join("data", "franticsearch.db")),
         AUTO_SYNC=os.environ.get("FS_AUTO_SYNC", "1") not in ("0", "false", "no", ""),
+        MAX_CONTENT_LENGTH=32 * 1024 * 1024,  # uploaded CSVs
     )
     app.config.update(config or {})
 
@@ -66,6 +60,9 @@ def create_app(config: dict | None = None) -> Flask:
             "CONDITION_NAMES": CONDITION_NAMES,
             "LANGUAGES": LANGUAGES,
             "USER_TYPES": locations.USER_TYPES,
+            "BOARDS": decks.BOARDS,
+            "BOARD_NAMES": decks.BOARD_NAMES,
+            "FORMATS": decks.FORMATS,
         }
 
     @app.template_filter("fromjson")
@@ -299,6 +296,7 @@ def _register_routes(app: Flask) -> None:
             abort(404)
         return render_template(
             "location.html", loc=loc, stock=queries.location_stock(conn, location_id),
+            deck=decks.by_location(conn, location_id),
             locs=_manual_locations(conn), has_history=locations.has_history(conn, location_id),
             history=queries.history(conn, location_id=location_id)[:20],
         )
@@ -332,6 +330,151 @@ def _register_routes(app: Flask) -> None:
         except LedgerError as e:
             flash(str(e), "error")
             return redirect(url_for("location_view", location_id=location_id))
+
+    # ---- import
+
+    @app.get("/import")
+    def import_index():
+        conn = g.db
+        locs = _manual_locations(conn)
+        return render_template(
+            "import.html", imports=importer.list_imports(conn), locs=locs,
+            has_unsorted=any(l["name"].lower() == UNSORTED.lower() for l in locs),
+            unsorted=UNSORTED,
+        )
+
+    @app.post("/import/collection")
+    def import_collection():
+        conn = g.db
+        upload = request.files.get("file")
+        try:
+            if not upload or not upload.filename:
+                raise LedgerError("choose a CSV file")
+            data = upload.read()
+            if request.form.get("location_id") == "new":
+                loc = conn.execute(
+                    "SELECT id FROM locations WHERE name = ? COLLATE NOCASE", (UNSORTED,)
+                ).fetchone()
+                loc_id = loc["id"] if loc else locations.create(conn, UNSORTED, "box")
+            else:
+                loc_id = _int_arg("location_id")
+                if loc_id is None:
+                    raise LedgerError("choose a location")
+            import_id = importer.import_collection(conn, data, loc_id, filename=upload.filename)
+        except LedgerError as e:
+            flash(str(e), "error")
+            return redirect(url_for("import_index"))
+        imp = importer.get_import(conn, import_id)
+        flash(f"Imported {imp['imported']} copies into {imp['location_name']}."
+              + (f" {imp['open']} line(s) need a decision below." if imp["open"] else ""), "ok")
+        return redirect(url_for("import_view", import_id=import_id))
+
+    @app.post("/import/deck")
+    def import_deck():
+        conn = g.db
+        f = request.form
+        upload = request.files.get("file")
+        text, filename = f.get("text", ""), ""
+        try:
+            if upload and upload.filename:
+                filename = upload.filename
+                try:
+                    text = upload.read().decode("utf-8-sig")
+                except UnicodeDecodeError:
+                    raise LedgerError("the file is not UTF-8 text") from None
+            if not text.strip():
+                raise LedgerError("paste a deck list or choose a file")
+            name = f.get("name", "").strip() or os.path.splitext(filename)[0]
+            import_id = importer.import_deck(
+                conn, text, name, f.get("format", ""), f.get("after_blank", "commander"),
+                filename=filename,
+            )
+        except LedgerError as e:
+            flash(str(e), "error")
+            return redirect(url_for("import_index"))
+        imp = importer.get_import(conn, import_id)
+        flash(f"Created deck {imp['deck_name']} with {imp['imported']} cards."
+              + (f" {imp['open']} line(s) need a decision below." if imp["open"] else ""), "ok")
+        return redirect(url_for("import_view", import_id=import_id))
+
+    @app.get("/import/<int:import_id>")
+    def import_view(import_id: int):
+        conn = g.db
+        imp = importer.get_import(conn, import_id)
+        if imp is None:
+            abort(404)
+        return render_template("import_view.html", imp=imp, rows=importer.unresolved(conn, import_id))
+
+    @app.get("/import/line/<int:uid>")
+    def import_fix(uid: int):
+        conn = g.db
+        u = importer.get_unresolved(conn, uid)
+        if u is None:
+            abort(404)
+        q = request.args.get("q", u["name"]).strip()
+        card_key = request.args.get("card")
+        return render_template(
+            "import_fix.html", u=u, imp=importer.get_import(conn, u["import_id"]), q=q,
+            results=queries.search_cards(conn, q) if q and not card_key else [],
+            printings=queries.card_printings(conn, card_key) if card_key else [],
+            card_key=card_key,
+        )
+
+    @app.post("/import/line/<int:uid>/fix")
+    def import_fix_post(uid: int):
+        conn = g.db
+        u = importer.get_unresolved(conn, uid)
+        if u is None:
+            abort(404)
+        try:
+            importer.fix(conn, uid, _form_key(), _form_qty())
+            flash("Line fixed.", "ok")
+        except LedgerError as e:
+            flash(str(e), "error")
+            return redirect(request.referrer or url_for("import_fix", uid=uid))
+        return redirect(url_for("import_view", import_id=u["import_id"]))
+
+    @app.post("/import/line/<int:uid>/dismiss")
+    def import_dismiss(uid: int):
+        conn = g.db
+        u = importer.get_unresolved(conn, uid)
+        if u is None:
+            abort(404)
+        try:
+            importer.dismiss(conn, uid)
+            flash("Line dismissed.", "ok")
+        except LedgerError as e:
+            flash(str(e), "error")
+        return redirect(url_for("import_view", import_id=u["import_id"]))
+
+    # ---- decks (read-only until phase 4)
+
+    @app.get("/decks")
+    def decks_list():
+        return render_template("decks.html", decks=decks.list_all(g.db))
+
+    @app.get("/decks/<int:deck_id>")
+    def deck_view(deck_id: int):
+        conn = g.db
+        deck = decks.get(conn, deck_id)
+        if deck is None:
+            abort(404)
+        imp = conn.execute("SELECT id FROM imports WHERE deck_id = ?", (deck_id,)).fetchone()
+        return render_template(
+            "deck.html", deck=deck, slots=decks.slots(conn, deck_id),
+            import_id=imp["id"] if imp else None,
+            deletable=not locations.has_history(conn, deck["location_id"]),
+        )
+
+    @app.post("/decks/<int:deck_id>/delete")
+    def deck_delete(deck_id: int):
+        try:
+            decks.delete(g.db, deck_id)
+            flash("Deck deleted.", "ok")
+            return redirect(url_for("decks_list"))
+        except LedgerError as e:
+            flash(str(e), "error")
+            return redirect(url_for("deck_view", deck_id=deck_id))
 
     # ---- history & system
 

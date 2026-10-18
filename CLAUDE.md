@@ -31,6 +31,8 @@ Env: `FS_DB` (default `data/franticsearch.db`), `FS_AUTO_SYNC` (default `1`), `F
 | `franticsearch/db.py` | Connections (WAL, FKs on, autocommit + explicit `transaction()`), migration runner, `meta` key/value helpers |
 | `franticsearch/ledger.py` | **The only code that changes `stock`.** acquire / move / adjust / sell write stock + a `movements` row in one transaction; `check()` verifies the invariant |
 | `franticsearch/locations.py` | Location CRUD, archive/unarchive |
+| `franticsearch/decks.py` | Deck + its deck location, slots, read-only slot view, delete |
+| `franticsearch/importer.py` | Moxfield deck text / collection CSV: parse → resolve (set+cn → name+set → default printing) → import; unresolved queue fix/dismiss |
 | `franticsearch/scryfall.py` | Bulk sync (gzipped JSONL from `jsonl_download_uri`; legacy JSON arrays via `ijson`; upsert, never deletes printings) |
 | `franticsearch/queries.py` | Read-only queries for the UI |
 | `franticsearch/app.py` + `templates/` + `static/style.css` | Flask routes (POST-redirect-GET, flash messages); `macros.html` holds shared stock-row actions |
@@ -41,6 +43,7 @@ Keep domain logic framework-free (unit-testable) and the Flask layer thin.
 ## Domain rules (already decided)
 
 - Stock key = printing (Scryfall id) + finish + condition (default `NM`) + language (default `en`). Condition/lang are hidden in the UI unless set.
+- `db.transaction()` is re-entrant (joins an open transaction), so domain functions compose atomically.
 - Ledger reasons: `import`, `acquire` (no source) · `sell` (no destination) · `adjust` (one side) · `move` (non-deck ↔ non-deck) · `pull` (into a deck location) · `return` (out of one). `ledger.move()` infers move/pull/return.
 - Deck locations change only via the deck's pull/return lists (Phase 4); manual forms exclude them.
 - Strict ownership: a copy is in exactly one location; no cross-deck swap suggestions.
@@ -49,7 +52,8 @@ Keep domain logic framework-free (unit-testable) and the Flask layer thin.
 
 ## Status
 
-- **Phase 1 (foundation)** is implemented on branch `phase-1`, PR #1. 28 tests pass.
+- **Phase 1 (foundation)** is implemented on branch `phase-1`, PR #1.
+- **Phase 2 (import)** is on branch `phase-2` (branched from `phase-1`). 47 tests pass. Deck import verified with a real Moxfield export (100/100 resolved). The collection CSV parser is built from Moxfield's documented header only: **verify with a real export**.
 - Live Scryfall sync verified 2026-10-18 (CLI and gunicorn background auto-sync from an empty DB: status `idle`, 118,893 printings, check OK). Scryfall had dropped `download_uri` (JSON array) for `jsonl_download_uri` (gzipped JSONL); the importer handles both.
 - **Still unverified**: `docker compose up --build` itself (no container runtime on the dev machine). The Dockerfile's steps were replayed outside a container (non-editable install, its gunicorn CMD, all pages 200), so what remains is the image build and the `./data` volume.
-- Next: Phase 2, Moxfield import (see PLAN.md § Import / migration and § Phases).
+- Next: Phase 3, card search (see PLAN.md § Phases).

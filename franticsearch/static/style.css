@@ -37,7 +37,7 @@ fieldset { border: 1px solid var(--rule); margin: 6px 0; padding: 6px 10px; }
 legend { font-weight: bold; }
 input, select, button, textarea { font: 12px Verdana, Tahoma, sans-serif; }
 input[type=number] { width: 4em; }
-select, input { max-width: 100%; box-sizing: border-box; }
+select, input, textarea { max-width: 100%; box-sizing: border-box; }
 button, input[type=submit] { background: #ece9d8; border: 2px outset #fff; padding: 1px 8px; cursor: pointer; }
 button:active { border-style: inset; }
 button.danger { color: var(--err); }

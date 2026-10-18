@@ -1,0 +1,31 @@
+{% extends "base.html" %}{% import "macros.html" as m with context %}
+{% block title %}{{ deck.name }}{% endblock %}
+{% block body %}
+<h1>{{ deck.name }}{% if deck.format %} <span class="muted">({{ deck.format }})</span>{% endif %}</h1>
+{% if deck.notes %}<p>{{ deck.notes }}</p>{% endif %}
+<p class="muted">Read-only for now: this is the deck's target list. "In deck" counts copies physically at the deck's
+<a href="{{ url_for('location_view', location_id=deck.location_id) }}">location</a>; "free" counts copies of the exact printing outside any deck.
+{% if import_id %}Imported in <a href="{{ url_for('import_view', import_id=import_id) }}">import #{{ import_id }}</a>.{% endif %}</p>
+{% for b in BOARDS %}
+{% set rows = slots|selectattr('board', 'equalto', b)|list %}
+{% if rows %}
+<h2>{{ BOARD_NAMES[b] }} ({{ rows|sum(attribute='qty_wanted') }})</h2>
+<table class="grid">
+<tr><th>Qty</th><th>Card</th><th>Printing</th><th>In deck</th><th>Free</th><th>Where (free)</th><th>Any printing</th></tr>
+{% for s in rows %}
+<tr><td class="num">{{ s.qty_wanted }}</td>
+<td><a href="{{ url_for('card', card_key=s.card_key, printing=s.printing_id) }}">{{ s.name }}</a></td>
+<td>{{ s.set_code|upper }} #{{ s.collector_number }} {{ m.key_tags(s) }}</td>
+<td class="num">{{ s.in_deck }}</td><td class="num">{{ s.free }}</td>
+<td>{{ s.free_where or '' }}</td><td class="num">{{ s.owned_any }}</td></tr>
+{% endfor %}
+</table>
+{% endif %}
+{% endfor %}
+{% if not slots %}<p class="muted">No cards.</p>{% endif %}
+{% if deletable %}
+<form method="post" action="{{ url_for('deck_delete', deck_id=deck.id) }}">
+<button class="danger">Delete deck</button> <span class="muted">no cards have been moved into it; its import record goes too, so the list can be imported again</span>
+</form>
+{% endif %}
+{% endblock %}
