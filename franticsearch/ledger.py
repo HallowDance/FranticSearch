@@ -80,6 +80,21 @@ def _location_type(conn: sqlite3.Connection, location_id: int) -> str:
     return row["type"]
 
 
+def _owner(conn: sqlite3.Connection, location_id: int) -> int | None:
+    row = conn.execute("SELECT owner_id FROM locations WHERE id = ?", (location_id,)).fetchone()
+    if row is None:
+        raise LedgerError(f"unknown location {location_id}")
+    return row["owner_id"]
+
+
+def batch_owners(conn: sqlite3.Connection, batch_id: str) -> set[int | None]:
+    """Owners of the locations a batch touched (one owner, since moves stay in a collection)."""
+    return {r[0] for r in conn.execute(
+        """SELECT l.owner_id FROM movements m
+             JOIN locations l ON l.id IN (m.from_location_id, m.to_location_id)
+            WHERE m.batch_id = ?""", (batch_id,))}
+
+
 def qty_at(conn: sqlite3.Connection, location_id: int, key: StockKey) -> int:
     row = conn.execute(
         "SELECT qty FROM stock WHERE location_id = ? AND printing_id = ? AND finish = ?"
@@ -126,6 +141,8 @@ def _record(
         raise LedgerError("quantity must be positive")
     if from_id is not None and from_id == to_id:
         raise LedgerError("source and destination are the same location")
+    if from_id is not None and to_id is not None and _owner(conn, from_id) != _owner(conn, to_id):
+        raise LedgerError("cards can't be moved between different users' collections")
     validate_key(conn, key)
     if from_id is not None:
         _location_type(conn, from_id)

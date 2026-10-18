@@ -10,7 +10,7 @@ Status: **Phase 2 (import)**: card database, locations, stock + ledger, collecti
 docker compose up -d --build     # http://<host>:6602
 ```
 
-The database lives in `./data/franticsearch.db`. The Scryfall card data (~110k printings) downloads on the first start and is re-checked daily. Watch progress on the **System** page. There is no authentication: keep it on your LAN.
+The database lives in `./data/franticsearch.db`. The Scryfall card data (~119k printings) downloads on the first start and is re-checked daily. Create the first account with `docker compose exec franticsearch python -m franticsearch user add NAME --admin`, then log in. Each user has a separate collection and can share locations or decks (with other users, or via a read-only link).
 
 ## Run locally
 
@@ -29,6 +29,7 @@ Other commands:
 | `python -m franticsearch sync [--force]` | update the Scryfall cache |
 | `python -m franticsearch sync --file default-cards.jsonl.gz` | import a manually downloaded Scryfall bulk file (`.jsonl`/`.json`, gzipped or not) |
 | `python -m franticsearch check` | verify stock equals the ledger (exit 1 on mismatch) |
+| `python -m franticsearch user add NAME --admin` | create an account (the first admin adopts any existing data); `user passwd NAME`, `user list` |
 
 Settings (environment): `FS_DB` (database path, default `data/franticsearch.db`), `FS_AUTO_SYNC` (`1`/`0`, default `1`), `FS_SECRET_KEY` (optional; otherwise generated and stored in the DB), `FS_PROXY` (`1` when behind a reverse proxy: trusts its `X-Forwarded-For/-Proto/-Host/-Prefix` headers, so the app can live under a path such as `/franticsearch/`; default `0`).
 

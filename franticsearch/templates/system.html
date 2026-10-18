@@ -11,7 +11,7 @@
 {% if meta.get('sync_error') %}<tr><th>Last error</th><td class="flash error">{{ meta.sync_error }} <span class="muted">({{ meta.get('last_attempt_at', '') }})</span></td></tr>{% endif %}
 <tr><th>Automatic sync</th><td>{{ 'on: on first run, then daily' if auto_sync else 'off (FS_AUTO_SYNC=0)' }}</td></tr>
 </table>
-<form method="post" action="{{ url_for('system_sync') }}">
+<form method="post" action="{{ url_for('system_sync') }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
 <button>Sync now</button>
 <label><input type="checkbox" name="force" value="1"> re-import even if Scryfall's file is unchanged</label>
 </form>

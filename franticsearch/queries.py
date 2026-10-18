@@ -51,8 +51,8 @@ class CollectionFilter:
     page: int = 1
     sort: str = "name"
 
-    def where(self) -> tuple[str, list]:
-        clauses, args = [], []
+    def where(self, owner: int) -> tuple[str, list]:
+        clauses, args = ["l.owner_id = ?"], [owner]
         if self.q:
             fq = fts_query(self.q)
             if fq:
@@ -74,9 +74,11 @@ class CollectionFilter:
         return (" AND ".join(clauses) or "1"), args
 
 
-def collection(conn: sqlite3.Connection, f: CollectionFilter) -> tuple[list[sqlite3.Row], int]:
-    """Owned cards grouped by card (oracle id), with totals. Returns (rows, total_cards)."""
-    where, args = f.where()
+def collection(
+    conn: sqlite3.Connection, f: CollectionFilter, owner: int
+) -> tuple[list[sqlite3.Row], int]:
+    """A user's cards grouped by card (oracle id), with totals. Returns (rows, total_cards)."""
+    where, args = f.where(owner)
     base = f"""
         FROM stock s
         JOIN printings p ON p.scryfall_id = s.printing_id
@@ -102,14 +104,21 @@ def collection(conn: sqlite3.Connection, f: CollectionFilter) -> tuple[list[sqli
     return rows, total
 
 
-def totals(conn: sqlite3.Connection) -> sqlite3.Row:
+def totals(conn: sqlite3.Connection, owner: int | None) -> sqlite3.Row:
+    """Counts for one user's collection (``owner`` None = the whole instance)."""
     return conn.execute(
-        """SELECT (SELECT COALESCE(SUM(qty), 0) FROM stock) AS copies,
+        """SELECT (SELECT COALESCE(SUM(s.qty), 0) FROM stock s JOIN locations l ON l.id = s.location_id
+                    WHERE :o IS NULL OR l.owner_id = :o) AS copies,
                   (SELECT COUNT(DISTINCT p.oracle_id) FROM stock s
-                     JOIN printings p ON p.scryfall_id = s.printing_id) AS cards,
+                     JOIN printings p ON p.scryfall_id = s.printing_id
+                     JOIN locations l ON l.id = s.location_id
+                    WHERE :o IS NULL OR l.owner_id = :o) AS cards,
                   (SELECT COUNT(*) FROM printings) AS printings,
-                  (SELECT COUNT(*) FROM locations) AS locations,
-                  (SELECT COUNT(*) FROM movements) AS movements"""
+                  (SELECT COUNT(*) FROM locations WHERE :o IS NULL OR owner_id = :o) AS locations,
+                  (SELECT COUNT(*) FROM movements m WHERE :o IS NULL OR EXISTS (
+                      SELECT 1 FROM locations l WHERE l.owner_id = :o
+                         AND l.id IN (m.from_location_id, m.to_location_id))) AS movements""",
+        {"o": owner},
     ).fetchone()
 
 
@@ -123,17 +132,33 @@ def card_printings(conn: sqlite3.Connection, card_key: str) -> list[sqlite3.Row]
     ).fetchall()
 
 
-def card_stock(conn: sqlite3.Connection, card_key: str) -> list[sqlite3.Row]:
+def shared_stock(conn: sqlite3.Connection, card_key: str, viewer: int) -> list[sqlite3.Row]:
+    """Copies of a card in other users' shared locations."""
+    return conn.execute(
+        """SELECT s.*, l.name AS location_name, l.type AS location_type, u.username AS owner_name,
+                  p.set_code, p.collector_number, p.name, p.image_normal AS image
+             FROM stock s
+             JOIN printings p ON p.scryfall_id = s.printing_id
+             JOIN locations l ON l.id = s.location_id
+             JOIN users u ON u.id = l.owner_id
+            WHERE (p.oracle_id = ? OR (p.oracle_id IS NULL AND p.scryfall_id = ?))
+              AND l.visibility IN ('users', 'link') AND l.archived = 0 AND l.owner_id <> ?
+            ORDER BY u.username COLLATE NOCASE, l.name COLLATE NOCASE""",
+        (card_key, card_key, viewer),
+    ).fetchall()
+
+
+def card_stock(conn: sqlite3.Connection, card_key: str, owner: int) -> list[sqlite3.Row]:
     return conn.execute(
         """SELECT s.*, l.name AS location_name, l.type AS location_type,
                   p.set_code, p.set_name, p.collector_number, p.name, p.image_normal AS image
              FROM stock s
              JOIN printings p ON p.scryfall_id = s.printing_id
              JOIN locations l ON l.id = s.location_id
-            WHERE p.oracle_id = ? OR (p.oracle_id IS NULL AND p.scryfall_id = ?)
+            WHERE (p.oracle_id = ? OR (p.oracle_id IS NULL AND p.scryfall_id = ?)) AND l.owner_id = ?
             ORDER BY p.released_at DESC, p.set_code, p.collector_number, s.finish,
                      l.name COLLATE NOCASE""",
-        (card_key, card_key),
+        (card_key, card_key, owner),
     ).fetchall()
 
 
@@ -169,18 +194,21 @@ def search_cards(conn: sqlite3.Connection, text: str, limit: int = 30) -> list[s
 
 def history(
     conn: sqlite3.Connection,
+    owner: int,
     location_id: int | None = None,
     card_key: str | None = None,
     page: int = 1,
 ) -> list[sqlite3.Row]:
-    clauses, args = [], []
+    """A user's movements (both ends of a move are always in the same collection)."""
+    clauses = ["COALESCE(fl.owner_id, tl.owner_id) = ?"]
+    args: list = [owner]
     if location_id:
         clauses.append("(m.from_location_id = ? OR m.to_location_id = ?)")
         args += [location_id, location_id]
     if card_key:
         clauses.append("(p.oracle_id = ? OR (p.oracle_id IS NULL AND p.scryfall_id = ?))")
         args += [card_key, card_key]
-    where = " AND ".join(clauses) or "1"
+    where = " AND ".join(clauses)
     return conn.execute(
         f"""SELECT m.*, p.name, p.set_code, p.collector_number, p.image_normal AS image,
                    COALESCE(p.oracle_id, p.scryfall_id) AS card_key,

@@ -1,0 +1,17 @@
+{% extends "base.html" %}{% block title %}Log in{% endblock %}
+{% block body %}
+<h1>Log in</h1>
+{% if no_users %}
+<p class="flash error">No accounts yet. On the server, create the first (admin) account:<br>
+<code>python -m franticsearch user add NAME --admin</code></p>
+{% endif %}
+<form method="post" action="{{ url_for('login') }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+<input type="hidden" name="next" value="{{ next }}">
+<table class="kv">
+<tr><th>Username</th><td><input name="username" size="20" autocomplete="username" autofocus required></td></tr>
+<tr><th>Password</th><td><input type="password" name="password" size="20" autocomplete="current-password" required></td></tr>
+<tr><th></th><td><button>Log in</button></td></tr>
+</table>
+</form>
+<p class="muted">Accounts are created by the admin.</p>
+{% endblock %}

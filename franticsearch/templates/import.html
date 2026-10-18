@@ -3,7 +3,7 @@
 <h1>Import from Moxfield</h1>
 <p class="muted">Each file or deck list can be imported only once. Lines that can't be matched to a printing wait in the import's queue for you to fix or dismiss.</p>
 
-<form method="post" action="{{ url_for('import_deck') }}" enctype="multipart/form-data">
+<form method="post" action="{{ url_for('import_deck') }}" enctype="multipart/form-data"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
 <fieldset><legend>Deck list &rarr; new deck</legend>
 <table class="kv">
 <tr><th>Deck name</th><td><input name="name" size="32" maxlength="100"> <span class="muted">blank = file name</span></td></tr>
@@ -18,7 +18,7 @@ or a file: <input type="file" name="file" accept=".txt,text/plain"></td></tr>
 </fieldset>
 </form>
 
-<form method="post" action="{{ url_for('import_collection') }}" enctype="multipart/form-data">
+<form method="post" action="{{ url_for('import_collection') }}" enctype="multipart/form-data"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
 <fieldset><legend>Collection CSV &rarr; a location</legend>
 <table class="kv">
 <tr><th>CSV file</th><td><input type="file" name="file" accept=".csv,text/csv" required> <span class="muted">Moxfield: Collection &rarr; Export &rarr; CSV</span></td></tr>

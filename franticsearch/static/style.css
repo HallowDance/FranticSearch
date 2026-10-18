@@ -87,3 +87,7 @@ a.cardlink .peek { display: none; }
   table.kv th { width: 6em; }
   table.kv td input[size], table.kv td select { width: 100%; }
 }
+.whoami { float: right; }
+.whoami form.inline { margin-left: 4px; }
+code { font-family: "Courier New", monospace; background: #f3f3ee; padding: 0 3px; }
+@media (max-width: 640px) { .whoami { float: none; display: block; margin-top: 4px; } }

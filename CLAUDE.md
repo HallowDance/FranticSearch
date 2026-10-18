@@ -18,10 +18,12 @@ python -m franticsearch serve --no-auto-sync
 python -m franticsearch sync [--force]   # Scryfall default_cards → printings (~80 MB .jsonl.gz, ~25 s)
 python -m franticsearch sync --file x.jsonl.gz   # import a local bulk file (.jsonl/.json, gz or not)
 python -m franticsearch check            # stock vs ledger invariant (exit 1 on mismatch)
+python -m franticsearch user add NAME [--admin] [--password-stdin]   # accounts (first admin adopts old data)
+python -m franticsearch user passwd NAME | user list
 docker compose up -d --build             # production-style, DB in ./data
 ```
 
-Env: `FS_DB` (default `data/franticsearch.db`), `FS_AUTO_SYNC` (default `1`), `FS_SECRET_KEY` (optional), `FS_PROXY` (default `0`; `1` = trust a reverse proxy's `X-Forwarded-*` headers incl. `X-Forwarded-Prefix`, for serving under a path like `/franticsearch/`).
+Env: `FS_DB` (default `data/franticsearch.db`), `FS_AUTO_SYNC` (default `1`), `FS_SECRET_KEY` (optional), `FS_PROXY` (default `0`; `1` = trust a reverse proxy's `X-Forwarded-*` headers incl. `X-Forwarded-Prefix`, for serving under a path like `/franticsearch/`), `FS_SECURE_COOKIE` (`1` = session cookie only over HTTPS).
 
 ## Architecture
 
@@ -30,7 +32,8 @@ Env: `FS_DB` (default `data/franticsearch.db`), `FS_AUTO_SYNC` (default `1`), `F
 | `franticsearch/migrations/NNN_*.sql` | Schema. Append a new numbered file for every change; never edit applied ones. Version in `PRAGMA user_version`. |
 | `franticsearch/db.py` | Connections (WAL, FKs on, autocommit + explicit `transaction()`), migration runner, `meta` key/value helpers |
 | `franticsearch/ledger.py` | **The only code that changes `stock`.** acquire(_many) / move(_many) / adjust / sell / undo write stock + `movements` rows in one transaction; `check()` verifies the invariant |
-| `franticsearch/locations.py` | Location CRUD, archive/unarchive |
+| `franticsearch/users.py` | Accounts: create (first admin adopts ownerless data), authenticate, set password |
+| `franticsearch/locations.py` | Location CRUD, archive/unarchive, visibility + share tokens |
 | `franticsearch/decks.py` | Deck + its deck location, slots, read-only slot view, delete |
 | `franticsearch/importer.py` | Moxfield deck text / collection CSV: parse → resolve (set+cn → name+set → default printing) → import; unresolved queue fix/dismiss |
 | `franticsearch/scryfall.py` | Bulk sync (gzipped JSONL from `jsonl_download_uri`; legacy JSON arrays via `ijson`; upsert, never deletes printings) |
@@ -48,7 +51,7 @@ Keep domain logic framework-free (unit-testable) and the Flask layer thin.
 - Deck locations change only via the deck's pull/return lists (Phase 4); manual forms exclude them.
 - Strict ownership: a copy is in exactly one location; no cross-deck swap suggestions.
 - Locations with ledger history can't be deleted; once empty they can be **archived** (hidden, nothing can be added, restorable).
-- LAN-only, no auth for now; keep auth addable in one place later.
+- Multi-user (phase 2b): separate collections, admin-created accounts, login + CSRF in the single `before_request` auth hook. **Every route that takes an id must check ownership** (`_my_location` & co. → 404) and every POST form needs `csrf_token()`. Domain functions take `owner=`. See PLAN.md § Users & sharing.
 
 ## Status
 
@@ -56,5 +59,6 @@ Keep domain logic framework-free (unit-testable) and the Flask layer thin.
 - **Phase 2 (import)** is merged. Deck import verified with both Moxfield text exports (plain, and with set codes: 100/100 resolved to the exact printings). The collection CSV parser is built from Moxfield's documented header only: **verify with a real export**.
 - Live Scryfall sync verified 2026-10-18 (CLI and gunicorn background auto-sync from an empty DB: status `idle`, 118,893 printings, check OK). Scryfall had dropped `download_uri` (JSON array) for `jsonl_download_uri` (gzipped JSONL); the importer handles both.
 - **Still unverified**: `docker compose up --build` itself (no container runtime on the dev machine). The Dockerfile's steps were replayed outside a container (non-editable install, its gunicorn CMD, all pages 200), so what remains is the image build and the `./data` volume.
-- Merged to `main`: PR #1 phase 1, #2 phase 2, #3 reverse-proxy support, #4 UI improvements (PLAN.md § 6 undo, § 7). 58 tests pass. PLAN.md § Phases has the per-phase status.
+- Merged to `main`: PR #1 phase 1, #2 phase 2, #3 reverse-proxy support, #4 UI improvements (PLAN.md § 6 undo, § 7), #5 plan.
+- **Phase 2b (users & sharing)** on branch `phase-2b`. 74 tests pass, incl. `tests/test_users.py` (isolation: another user's ids 404 on every route). PLAN.md § Phases has the per-phase status.
 - Next: Phase 3, card search (see PLAN.md § Phases).
