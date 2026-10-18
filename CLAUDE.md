@@ -21,7 +21,7 @@ python -m franticsearch check            # stock vs ledger invariant (exit 1 on 
 docker compose up -d --build             # production-style, DB in ./data
 ```
 
-Env: `FS_DB` (default `data/franticsearch.db`), `FS_AUTO_SYNC` (default `1`), `FS_SECRET_KEY` (optional).
+Env: `FS_DB` (default `data/franticsearch.db`), `FS_AUTO_SYNC` (default `1`), `FS_SECRET_KEY` (optional), `FS_PROXY` (default `0`; `1` = trust a reverse proxy's `X-Forwarded-*` headers incl. `X-Forwarded-Prefix`, for serving under a path like `/franticsearch/`).
 
 ## Architecture
 

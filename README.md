@@ -30,7 +30,7 @@ Other commands:
 | `python -m franticsearch sync --file default-cards.jsonl.gz` | import a manually downloaded Scryfall bulk file (`.jsonl`/`.json`, gzipped or not) |
 | `python -m franticsearch check` | verify stock equals the ledger (exit 1 on mismatch) |
 
-Settings (environment): `FS_DB` (database path, default `data/franticsearch.db`), `FS_AUTO_SYNC` (`1`/`0`, default `1`), `FS_SECRET_KEY` (optional; otherwise generated and stored in the DB).
+Settings (environment): `FS_DB` (database path, default `data/franticsearch.db`), `FS_AUTO_SYNC` (`1`/`0`, default `1`), `FS_SECRET_KEY` (optional; otherwise generated and stored in the DB), `FS_PROXY` (`1` when behind a reverse proxy: trusts its `X-Forwarded-For/-Proto/-Host/-Prefix` headers, so the app can live under a path such as `/franticsearch/`; default `0`).
 
 ## Tests
 

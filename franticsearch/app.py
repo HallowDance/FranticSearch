@@ -13,6 +13,7 @@ import time
 from flask import (
     Flask, abort, flash, g, redirect, render_template, request, url_for,
 )
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from . import __version__, db, decks, importer, ledger, locations, queries, scryfall
 from .ledger import CONDITION_NAMES, CONDITIONS, FINISHES, LANGUAGES, LedgerError, StockKey
@@ -28,8 +29,13 @@ def create_app(config: dict | None = None) -> Flask:
         DATABASE=os.environ.get("FS_DB", os.path.join("data", "franticsearch.db")),
         AUTO_SYNC=os.environ.get("FS_AUTO_SYNC", "1") not in ("0", "false", "no", ""),
         MAX_CONTENT_LENGTH=32 * 1024 * 1024,  # uploaded CSVs
+        # Behind a reverse proxy: trust its X-Forwarded-For/-Proto/-Host/-Prefix headers
+        # (e.g. nginx serving the app under /franticsearch/). Off by default.
+        PROXY=os.environ.get("FS_PROXY", "0") not in ("0", "false", "no", ""),
     )
     app.config.update(config or {})
+    if app.config["PROXY"]:
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
     conn = db.connect(app.config["DATABASE"])
     db.migrate(conn)

@@ -117,3 +117,23 @@ def test_card_links_carry_hover_image(client, conn):
     for url in ["/collection", "/add?q=sol", f"/locations/{loc}", "/history", f"/decks/{deck_id}",
                 f"/card/{SOL_ORACLE}"]:
         assert peek in client.get(url).data, url
+
+
+def test_behind_proxy_under_a_path_prefix(conn, db_path):
+    from franticsearch.app import create_app
+    app = create_app({"DATABASE": db_path, "AUTO_SYNC": False, "TESTING": True, "PROXY": True})
+    c = app.test_client()
+    h = {"X-Forwarded-Prefix": "/franticsearch", "X-Forwarded-Proto": "https",
+         "X-Forwarded-Host": "example.org"}
+    page = c.get("/locations", headers=h).data
+    assert b'href="/franticsearch/collection"' in page and b"/franticsearch/static/style.css" in page
+    r = c.post("/locations", data={"name": "Binder A", "type": "binder"}, headers=h)
+    assert r.headers["Location"].startswith("/franticsearch/locations/")
+    loc = locations.list_all(conn)[0]["id"]
+    ledger.acquire(conn, loc, StockKey(SOL_C21), 1)
+    page = c.get(f"/locations/{loc}", headers=h).data
+    assert b'name="next" value="/franticsearch/locations/' in page
+    # without the proxy setting, forwarded headers are ignored
+    from franticsearch.app import create_app as plain
+    p = plain({"DATABASE": db_path, "AUTO_SYNC": False, "TESTING": True}).test_client()
+    assert b"/franticsearch/" not in p.get("/locations", headers=h).data
