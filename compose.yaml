@@ -1,0 +1,10 @@
+services:
+  franticsearch:
+    build: .
+    ports:
+      - "6602:6602"   # LAN only for now: no authentication (see PLAN.md)
+    volumes:
+      - ./data:/data
+    environment:
+      FS_AUTO_SYNC: "1"
+    restart: unless-stopped

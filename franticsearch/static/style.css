@@ -1,0 +1,59 @@
+/* FranticSearch — deliberately old-school: grey chrome, blue links, bordered tables. */
+:root {
+  --bg: #d4d0c8; --panel: #ffffff; --ink: #000000; --muted: #555555;
+  --link: #0000cc; --visited: #551a8b; --head: #2a4a7f; --head-ink: #ffffff;
+  --row: #f3f3ee; --rule: #808080; --ok-bg: #dff0d8; --ok: #2b542c;
+  --err-bg: #f8dcdc; --err: #8a1f1f; --tag: #ffffcc;
+}
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font: 13px Verdana, Tahoma, "DejaVu Sans", sans-serif;
+}
+a { color: var(--link); } a:visited { color: var(--visited); }
+#top { background: var(--head); color: var(--head-ink); padding: 6px 10px; border-bottom: 2px solid #000; }
+#top .logo { font: bold 18px Georgia, "Times New Roman", serif; color: #fff; text-decoration: none; }
+#top .logo small { font: 11px Verdana, sans-serif; color: #c8d4ea; margin-left: 6px; }
+#nav { background: #ece9d8; border-bottom: 1px solid var(--rule); padding: 4px 10px; }
+#nav a { margin-right: 4px; padding: 2px 6px; border: 1px solid transparent; text-decoration: none; }
+#nav a:hover, #nav a.on { border: 1px solid var(--rule); background: #fff; }
+#main { margin: 10px; padding: 10px 14px; background: var(--panel); border: 1px solid var(--rule); }
+#foot { margin: 0 10px 10px; color: var(--muted); font-size: 11px; }
+h1 { font: bold 17px Georgia, serif; margin: 0 0 10px; border-bottom: 1px dotted var(--rule); }
+h2 { font: bold 14px Verdana, sans-serif; margin: 16px 0 6px; background: #ece9d8;
+     border: 1px solid var(--rule); padding: 3px 6px; }
+table.grid { border-collapse: collapse; margin: 4px 0 8px; }
+table.grid th, table.grid td { border: 1px solid var(--rule); padding: 2px 6px; vertical-align: middle; }
+table.grid th { background: #ece9d8; text-align: left; font-weight: bold; }
+table.grid tr:nth-child(even) td { background: var(--row); }
+table.grid td.num { text-align: right; font-family: "Courier New", monospace; }
+table.kv th { text-align: right; padding-right: 8px; color: var(--muted); font-weight: normal; vertical-align: top; }
+.flash { padding: 4px 8px; margin-bottom: 8px; border: 1px solid; }
+.flash.ok { background: var(--ok-bg); color: var(--ok); }
+.flash.error { background: var(--err-bg); color: var(--err); }
+.tag { background: var(--tag); border: 1px solid #c8c890; padding: 0 3px; font-size: 11px; }
+.muted { color: var(--muted); }
+.mono { font-family: "Courier New", monospace; }
+fieldset { border: 1px solid var(--rule); margin: 6px 0; padding: 6px 10px; }
+legend { font-weight: bold; }
+input, select, button, textarea { font: 12px Verdana, Tahoma, sans-serif; }
+input[type=number] { width: 4em; }
+select, input { max-width: 100%; box-sizing: border-box; }
+button, input[type=submit] { background: #ece9d8; border: 2px outset #fff; padding: 1px 8px; cursor: pointer; }
+button:active { border-style: inset; }
+button.danger { color: var(--err); }
+form.inline { display: inline; margin: 0; }
+td form.inline + form.inline { margin-left: 8px; }
+details summary { cursor: pointer; color: var(--link); }
+.cardbox { float: right; margin: 0 0 10px 14px; text-align: center; }
+.cardbox img { width: 244px; border-radius: 10px; border: 1px solid var(--rule); }
+.oracle { white-space: pre-line; max-width: 46em; }
+.pager { margin: 6px 0; }
+.clear { clear: both; }
+@media (max-width: 640px) {
+  .cardbox { float: none; margin: 0 0 10px; } .cardbox img { width: 180px; }
+  #main { margin: 4px; padding: 8px; }
+  table.grid { font-size: 12px; display: block; max-width: 100%; overflow-x: auto; }
+  table.kv { width: 100%; table-layout: fixed; }
+  table.kv th { width: 6em; }
+  table.kv td input[size], table.kv td select { width: 100%; }
+}

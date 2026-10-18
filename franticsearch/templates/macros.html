@@ -1,0 +1,45 @@
+{# Shared bits: stock key display, hidden key fields, per-row stock actions. #}
+{% macro key_tags(row) -%}
+{% if row.finish != 'nonfoil' %}<span class="tag">{{ row.finish }}</span>{% endif %}
+{% if row.condition != 'NM' %}<span class="tag" title="{{ CONDITION_NAMES[row.condition] }}">{{ row.condition }}</span>{% endif %}
+{% if row.lang != 'en' %}<span class="tag" title="{{ LANGUAGES.get(row.lang, row.lang) }}">{{ row.lang }}</span>{% endif %}
+{%- endmacro %}
+
+{% macro key_fields(row) -%}
+<input type="hidden" name="printing_id" value="{{ row.printing_id }}">
+<input type="hidden" name="finish" value="{{ row.finish }}">
+<input type="hidden" name="condition" value="{{ row.condition }}">
+<input type="hidden" name="lang" value="{{ row.lang }}">
+<input type="hidden" name="next" value="{{ request.full_path }}">
+{%- endmacro %}
+
+{% macro stock_actions(row, locs) -%}
+<form class="inline" method="post" action="{{ url_for('stock_move') }}">{{ key_fields(row) }}
+<input type="hidden" name="from_id" value="{{ row.location_id }}">
+<input type="number" name="qty" value="1" min="1" max="{{ row.qty }}" aria-label="quantity to move">
+&rarr; <select name="to_id" aria-label="move to">
+{% for l in locs if l.id != row.location_id %}<option value="{{ l.id }}">{{ l.name }}</option>{% endfor %}
+</select> <button>Move</button></form>
+<form class="inline" method="post" action="{{ url_for('stock_adjust') }}">{{ key_fields(row) }}
+<input type="hidden" name="location_id" value="{{ row.location_id }}">
+<input type="number" name="qty" value="{{ row.qty }}" min="0" aria-label="corrected count"> <button title="Correct the count here (recorded as an adjustment)">Set count</button></form>
+<form class="inline" method="post" action="{{ url_for('stock_sell') }}">{{ key_fields(row) }}
+<input type="hidden" name="location_id" value="{{ row.location_id }}">
+<input type="number" name="qty" value="1" min="1" max="{{ row.qty }}" aria-label="quantity to remove"> <button class="danger" title="Sold, traded away or lost">Remove</button></form>
+{%- endmacro %}
+
+{% macro movement_row(m) -%}
+<tr>
+<td class="mono">{{ m.ts[:16].replace('T', ' ') }}</td>
+<td>{{ m.reason }}</td>
+<td class="num">{{ m.qty }}</td>
+<td><a href="{{ url_for('card', card_key=m.card_key) }}">{{ m.name }}</a> <span class="muted">{{ m.set_code|upper }} #{{ m.collector_number }}</span> {{ key_tags(m) }}</td>
+<td>{% if m.from_location_id %}<a href="{{ url_for('location_view', location_id=m.from_location_id) }}">{{ m.from_name }}</a>{% else %}<span class="muted">(outside)</span>{% endif %}</td>
+<td>{% if m.to_location_id %}<a href="{{ url_for('location_view', location_id=m.to_location_id) }}">{{ m.to_name }}</a>{% else %}<span class="muted">(outside)</span>{% endif %}</td>
+<td>{{ m.note }}</td>
+</tr>
+{%- endmacro %}
+
+{% macro movement_head() -%}
+<tr><th>When (UTC)</th><th>Reason</th><th>Qty</th><th>Card</th><th>From</th><th>To</th><th>Note</th></tr>
+{%- endmacro %}

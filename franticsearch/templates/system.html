@@ -1,0 +1,39 @@
+{% extends "base.html" %}{% block title %}System{% endblock %}
+{% block body %}
+<h1>System</h1>
+<h2>Scryfall card data</h2>
+<table class="grid kv">
+<tr><th>Status</th><td>{{ meta.get('sync_status', 'never run') }}{% if running %} <b>(running)</b>{% endif %}{% if meta.get('sync_status') == 'importing' %} &mdash; {{ meta.get('sync_progress', 0) }} cards so far{% endif %}</td></tr>
+<tr><th>Printings cached</th><td class="num">{{ totals.printings }}</td></tr>
+<tr><th>Scryfall file date</th><td>{{ meta.get('scryfall_updated_at', '-') }}</td></tr>
+<tr><th>Last successful check</th><td>{{ meta.get('last_sync_at', '-') }}</td></tr>
+<tr><th>Last result</th><td>{{ meta.get('last_sync_result', '-') }}</td></tr>
+{% if meta.get('sync_error') %}<tr><th>Last error</th><td class="flash error">{{ meta.sync_error }} <span class="muted">({{ meta.get('last_attempt_at', '') }})</span></td></tr>{% endif %}
+<tr><th>Automatic sync</th><td>{{ 'on: on first run, then daily' if auto_sync else 'off (FS_AUTO_SYNC=0)' }}</td></tr>
+</table>
+<form method="post" action="{{ url_for('system_sync') }}">
+<button>Sync now</button>
+<label><input type="checkbox" name="force" value="1"> re-import even if Scryfall's file is unchanged</label>
+</form>
+
+<h2>Ledger consistency</h2>
+<p>Checks that the stock table equals the sum of all recorded movements.</p>
+{% if problems is none %}
+<form method="get" action="{{ url_for('system') }}"><input type="hidden" name="check" value="1"><button>Run check</button></form>
+{% elif not problems %}
+<p class="flash ok">OK &mdash; stock matches the ledger ({{ totals.movements }} movements).</p>
+{% else %}
+<p class="flash error">{{ problems|length }} mismatch{{ 'es' if problems|length != 1 }} found:</p>
+<table class="grid">
+<tr><th>Location</th><th>Printing</th><th>Finish</th><th>Cond.</th><th>Lang</th><th>Ledger</th><th>Stock</th></tr>
+{% for p in problems %}<tr><td>{{ p.location_id }}</td><td class="mono">{{ p.printing_id }}</td><td>{{ p.finish }}</td><td>{{ p.condition }}</td><td>{{ p.lang }}</td><td class="num">{{ p.ledger_qty }}</td><td class="num">{{ p.stock_qty }}</td></tr>{% endfor %}
+</table>
+{% endif %}
+
+<h2>Database</h2>
+<table class="grid kv">
+<tr><th>File</th><td class="mono">{{ db_path }}</td></tr>
+<tr><th>Schema version</th><td>{{ schema }}</td></tr>
+<tr><th>Movements</th><td class="num">{{ totals.movements }}</td></tr>
+</table>
+{% endblock %}
