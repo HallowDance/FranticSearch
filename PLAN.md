@@ -121,15 +121,37 @@ Domain logic (`ledger.py`, later pull/return planning and import parsing) is fra
 
 ## Phases
 
-| # | Phase | Deliverables |
-|---|---|---|
-| 1 | Foundation | Repo scaffold, Docker, schema + migrations, Scryfall sync, locations CRUD, stock + ledger with invariant check, collection browser, manual add/move/adjust |
-| 2 | Import | Moxfield collection CSV, deck text import, unresolved queue |
-| 3 | Card search | Local search over `printings` (name/type/text/colors/MV/set/legality), ownership-aware results |
-| 4 | Decks | Deck editor (slots, boards, proxies, printing switch), live stats + legality, derived deck state, pull list, return list, "mark as built" |
-| 5 | Shortfalls | Proxies, cross-deck buy list, exports |
-| 6 | Polish | Batch undo, ledger views, mobile layout pass, backup/restore |
-| later | — | Scryfall query syntax, public hosting + auth, prices, scanning |
+| # | Phase | Deliverables | Status |
+|---|---|---|---|
+| 1 | Foundation | Repo scaffold, Docker, schema + migrations, Scryfall sync, locations CRUD, stock + ledger with invariant check, collection browser, manual add/move/adjust | **Shipped** (PR #1). `docker compose up --build` itself not yet verified |
+| 2 | Import | Moxfield collection CSV, deck text import, unresolved queue | **Shipped** (PR #2). Collection CSV not yet tested with a real Moxfield export |
+| 3 | Card search | Local search over `printings` (name/type/text/colors/MV/set/legality), ownership-aware results | Next. Name search, nav search and quick add exist already |
+| 4 | Decks | Deck editor (slots, boards, proxies, printing switch), live stats + legality, derived deck state, pull list, return list, "mark as built" | Partly: read-only deck page with type groups, mana curve, in-deck/free counts (PR #2, #4) |
+| 5 | Shortfalls | Proxies, cross-deck buy list, exports | Not started |
+| 6 | Polish | Batch undo, ledger views, mobile layout pass, backup/restore | Partly: batch undo shipped (PR #4) |
+| later | — | Scryfall query syntax, public hosting + auth, prices, scanning | Hosting: reverse-proxy support shipped (PR #3) |
+
+### Shipped so far (2026-10-18)
+
+- **PR #1, Phase 1 foundation.** Plus a sync fix: Scryfall now serves `default_cards` only as gzipped JSON Lines (`jsonl_download_uri`); the importer reads that and legacy JSON arrays. Verified live: ~119k printings in ~25 s.
+- **PR #2, Phase 2 import.**
+  - Moxfield deck text, both exports, creates deck + deck location + slots. Commander detection: headers, then the block after a blank line, then the first line for commander formats.
+  - Collection CSV goes into a location. Proxies are skipped.
+  - Unresolved queue with fix/dismiss. Duplicate imports are refused by hash.
+  - Read-only Decks pages.
+  - Card image on hover.
+  - Decisions are in § Import / migration.
+- **PR #3, reverse-proxy support.** `FS_PROXY=1` trusts `X-Forwarded-*` including the prefix. Currently served at `https://theorycorner.com/franticsearch/` via nginx basic auth and a reverse SSH tunnel from the dev machine. The tunnel is not a permanent service yet.
+- **PR #4, UI improvements** (§ 6, § 7):
+  - quick add
+  - paste a list into a location
+  - move ticked lines
+  - batch undo (migration 004)
+  - nav search
+  - sortable columns
+  - deck type groups + mana curve
+  - mana symbols
+  - Text | Images view
 
 ## Open questions
 
