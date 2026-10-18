@@ -31,7 +31,7 @@
 </table>
 {% if manual %}
 {% set dests = locs|rejectattr('id', 'equalto', loc.id)|list %}
-<form id="bulk" method="post" action="{{ url_for('location_move_selected', location_id=loc.id) }}">
+<form id="bulk" method="post" action="{{ url_for('location_move_selected', location_id=loc.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
 <input type="hidden" name="next" value="{{ url_for('location_view', location_id=loc.id, sort=sort) }}">
 {% if dests %}Move all copies of the ticked lines to <select name="to_id" aria-label="move ticked to">{% for l in dests %}<option value="{{ l.id }}">{{ l.name }}</option>{% endfor %}</select> <button>Move ticked</button>
 {% else %}<span class="muted">Create another location to move cards in bulk.</span>{% endif %}
@@ -42,7 +42,7 @@
 
 {% if manual and not loc.archived %}
 <h2 id="paste">Add cards from a list</h2>
-<form method="post" action="{{ url_for('location_paste', location_id=loc.id) }}">
+<form method="post" action="{{ url_for('location_paste', location_id=loc.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
 {% if paste %}<div class="flash error">{% for p in paste.problems %}{{ p }}<br>{% endfor %}</div>{% endif %}
 <textarea name="text" rows="6" cols="50" placeholder="4 Lightning Bolt&#10;1 Sol Ring (C21) 263&#10;2 Arcane Signet (VOC) 159 *F*">{{ paste.text if paste }}</textarea><br>
 <button>Add to {{ loc.name }}</button>
@@ -52,27 +52,29 @@
 
 {% if loc.type != 'deck' %}
 <h2>Edit</h2>
-<form method="post" action="{{ url_for('location_edit', location_id=loc.id) }}">
+<form method="post" action="{{ url_for('location_edit', location_id=loc.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
 Name <input name="name" value="{{ loc.name }}" size="24" required>
 Type <select name="type">{% for t in USER_TYPES %}<option {{ 'selected' if t == loc.type }}>{{ t }}</option>{% endfor %}</select>
 Notes <input name="notes" value="{{ loc.notes }}" size="30">
 <button>Save</button>
 </form>
 {% if loc.archived %}
-<form method="post" action="{{ url_for('location_archive', location_id=loc.id) }}" style="margin-top:6px">
+<form method="post" action="{{ url_for('location_archive', location_id=loc.id) }}" style="margin-top:6px"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
 <input type="hidden" name="archived" value="0"><button>Unarchive</button>
 </form>
 {% elif not has_history %}
-<form method="post" action="{{ url_for('location_delete', location_id=loc.id) }}" style="margin-top:6px">
+<form method="post" action="{{ url_for('location_delete', location_id=loc.id) }}" style="margin-top:6px"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
 <button class="danger">Delete location</button> <span class="muted">it never held any cards</span>
 </form>
 {% else %}
-<form method="post" action="{{ url_for('location_archive', location_id=loc.id) }}" style="margin-top:6px">
+<form method="post" action="{{ url_for('location_archive', location_id=loc.id) }}" style="margin-top:6px"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
 <input type="hidden" name="archived" value="1"><button {{ 'disabled' if stock }}>Archive location</button>
 <span class="muted">{{ 'move all cards out first; ' if stock }}it has history, so it can't be deleted</span>
 </form>
 {% endif %}
 {% endif %}
+
+{{ m.sharing(loc) }}
 
 {% if history %}
 <h2>Recent history <a class="muted" href="{{ url_for('history', location=loc.id) }}">(all)</a></h2>

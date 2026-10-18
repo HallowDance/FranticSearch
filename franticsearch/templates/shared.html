@@ -1,0 +1,23 @@
+{% extends "base.html" %}{% import "macros.html" as m with context %}
+{% block title %}{{ loc.name }}{% endblock %}
+{% block body %}
+<h1>{{ loc.name }} <span class="muted">({{ loc.type }})</span></h1>
+<p class="muted">{{ owner.username }}'s {{ loc.type }}, shared read-only.</p>
+{% set sort = request.args.get('sort', 'name') %}
+{% macro card_href(s) %}{% if not anonymous %}{{ url_for('card', card_key=s.card_key, printing=s.printing_id) }}{% endif %}{% endmacro %}
+{% if stock %}
+<p class="muted">{{ stock|sum(attribute='qty') }} copies, {{ stock|length }} line{{ '' if stock|length == 1 else 's' }}.</p>
+{{ m.view_switch() }}
+{% if view == 'images' %}
+<div class="cardgrid">{% for s in stock %}{{ m.card_tile(card_href(s)|trim, s.name, s.image, s.qty, s.set_code|upper ~ ' #' ~ s.collector_number ~ ('' if s.finish == 'nonfoil' else ' ' ~ s.finish)) }}{% endfor %}</div>
+{% else %}
+<table class="grid">
+<tr>{{ m.sort_th('Card', 'name', sort) }}{{ m.sort_th('Cost', 'cost', sort) }}{{ m.sort_th('Printing', 'set', sort) }}{{ m.sort_th('Qty', 'qty', sort) }}</tr>
+{% for s in stock %}
+<tr><td>{{ m.card_link(card_href(s)|trim, s.name, s.image) }}</td><td class="cost">{{ s.mana_cost|mana }}</td>
+<td>{{ s.set_code|upper }} #{{ s.collector_number }} {{ m.key_tags(s) }}</td><td class="num">{{ s.qty }}</td></tr>
+{% endfor %}
+</table>
+{% endif %}
+{% else %}<p class="muted">Empty.</p>{% endif %}
+{% endblock %}

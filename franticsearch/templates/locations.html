@@ -17,7 +17,7 @@
 </table>
 </details>
 {% endif %}
-<form method="post" action="{{ url_for('locations_create') }}">
+<form method="post" action="{{ url_for('locations_create') }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
 <fieldset><legend>New location</legend>
 Name <input name="name" size="24" required>
 Type <select name="type">{% for t in USER_TYPES %}<option>{{ t }}</option>{% endfor %}</select>

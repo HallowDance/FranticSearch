@@ -25,8 +25,10 @@ COMMANDER_FORMATS = ("commander", "paupercommander", "oathbreaker", "brawl", "st
                      "predh", "duel")
 
 
-def create(conn: sqlite3.Connection, name: str, format_: str = "", notes: str = "") -> int:
-    """New deck plus its deck location (same name; location names are unique)."""
+def create(
+    conn: sqlite3.Connection, name: str, format_: str = "", notes: str = "", *, owner: int
+) -> int:
+    """New deck plus its deck location (same name; location names are unique per user)."""
     name = (name or "").strip()
     if not name:
         raise LedgerError("deck name is required")
@@ -37,14 +39,14 @@ def create(conn: sqlite3.Connection, name: str, format_: str = "", notes: str = 
     try:
         with transaction(conn):
             loc = conn.execute(
-                "INSERT INTO locations(name, type) VALUES (?, 'deck')", (name,)
+                "INSERT INTO locations(owner_id, name, type) VALUES (?, ?, 'deck')", (owner, name)
             ).lastrowid
             return conn.execute(
                 "INSERT INTO decks(name, format, location_id, notes) VALUES (?, ?, ?, ?)",
                 (name, format_, loc, notes.strip()),
             ).lastrowid
     except sqlite3.IntegrityError:
-        raise LedgerError(f"a location or deck named {name!r} already exists") from None
+        raise LedgerError(f"you already have a location or deck named {name!r}") from None
 
 
 def add_slot(conn: sqlite3.Connection, deck_id: int, key: StockKey, board: str, qty: int) -> None:
@@ -112,22 +114,25 @@ def by_location(conn: sqlite3.Connection, location_id: int) -> sqlite3.Row | Non
     return conn.execute("SELECT * FROM decks WHERE location_id = ?", (location_id,)).fetchone()
 
 
-def list_all(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+def list_all(conn: sqlite3.Connection, owner: int) -> list[sqlite3.Row]:
     return conn.execute(
-        """SELECT d.*,
+        """SELECT d.*, l.visibility,
                   (SELECT COALESCE(SUM(qty_wanted), 0) FROM deck_slots
                     WHERE deck_id = d.id AND board <> 'maybe') AS cards,
                   (SELECT COUNT(*) FROM import_unresolved u JOIN imports i ON i.id = u.import_id
                     WHERE i.deck_id = d.id AND u.status = 'open') AS unresolved
-             FROM decks d ORDER BY d.name COLLATE NOCASE"""
+             FROM decks d JOIN locations l ON l.id = d.location_id
+            WHERE l.owner_id = ? ORDER BY d.name COLLATE NOCASE""",
+        (owner,),
     ).fetchall()
 
 
 def slots(conn: sqlite3.Connection, deck_id: int) -> list[sqlite3.Row]:
     """Slots with printing info and where matching copies are (read-only view).
 
-    ``in_deck`` = copies at the deck's location; ``free`` = copies of the exact
-    key outside any deck; ``owned_any`` = copies of any printing of the card.
+    ``in_deck`` = copies at the deck's location; ``free`` = the deck owner's copies
+    of the exact key outside any deck; ``owned_any`` = the owner's copies of any
+    printing of the card.
     """
     return conn.execute(
         """SELECT ds.*, p.name, p.set_code, p.collector_number, p.type_line, p.mana_cost, p.cmc,
@@ -138,17 +143,19 @@ def slots(conn: sqlite3.Connection, deck_id: int) -> list[sqlite3.Row]:
                       AND s.finish = ds.finish AND s.condition = ds.condition AND s.lang = ds.lang
                   ) AS in_deck,
                   (SELECT COALESCE(SUM(s.qty), 0) FROM stock s JOIN locations l ON l.id = s.location_id
-                    WHERE l.type <> 'deck' AND s.printing_id = ds.printing_id
+                    WHERE l.type <> 'deck' AND l.owner_id = dl.owner_id AND s.printing_id = ds.printing_id
                       AND s.finish = ds.finish AND s.condition = ds.condition AND s.lang = ds.lang
                   ) AS free,
                   (SELECT GROUP_CONCAT(l.name, ', ') FROM stock s JOIN locations l ON l.id = s.location_id
-                    WHERE l.type <> 'deck' AND s.printing_id = ds.printing_id
+                    WHERE l.type <> 'deck' AND l.owner_id = dl.owner_id AND s.printing_id = ds.printing_id
                       AND s.finish = ds.finish AND s.condition = ds.condition AND s.lang = ds.lang
                   ) AS free_where,
                   (SELECT COALESCE(SUM(s.qty), 0) FROM stock s JOIN printings p2 ON p2.scryfall_id = s.printing_id
-                    WHERE p2.oracle_id = p.oracle_id) AS owned_any
+                     JOIN locations l ON l.id = s.location_id
+                    WHERE p2.oracle_id = p.oracle_id AND l.owner_id = dl.owner_id) AS owned_any
              FROM deck_slots ds
              JOIN decks d ON d.id = ds.deck_id
+             JOIN locations dl ON dl.id = d.location_id
              JOIN printings p ON p.scryfall_id = ds.printing_id
             WHERE ds.deck_id = ?
             ORDER BY CASE ds.board WHEN 'commander' THEN 0 WHEN 'main' THEN 1

@@ -19,7 +19,7 @@ Name <input name="q" value="{{ q }}" size="32"> <button>Search</button>
 </table>
 {% elif q and not printings %}<p>No card matches <b>{{ q }}</b>.</p>{% endif %}
 {% if printings %}
-<form method="post" action="{{ url_for('import_fix_post', uid=u.id) }}">
+<form method="post" action="{{ url_for('import_fix_post', uid=u.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
 <fieldset><legend>2. Pick the printing: {{ printings[0].name }}</legend>
 <table class="kv">
 <tr><th>Printing</th><td><select name="printing_id">

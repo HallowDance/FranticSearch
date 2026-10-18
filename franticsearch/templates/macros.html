@@ -1,7 +1,9 @@
 {# Shared bits: card links, stock key display, hidden key fields, per-row stock actions. #}
 {# A card link that shows the card image while hovered (CSS only; lazy, so it loads on first hover). #}
 {% macro card_link(href, text, image) -%}
-<a class="cardlink" href="{{ href }}">{{ text }}{% if image %}<img class="peek" src="{{ image }}" alt="" loading="lazy">{% endif %}</a>
+{# href none = no link (pages for visitors who aren't logged in); the hover image still works #}
+{% set inner %}{{ text }}{% if image %}<img class="peek" src="{{ image }}" alt="" loading="lazy">{% endif %}{% endset %}
+{%- if href %}<a class="cardlink" href="{{ href }}">{{ inner }}</a>{% else %}<span class="cardlink">{{ inner }}</span>{% endif %}
 {%- endmacro %}
 
 {# Column header that sorts the current page by `key` (click again to reverse). #}
@@ -22,7 +24,21 @@
 
 {# One card in the image view: picture (lazy), copy count badge, caption. #}
 {% macro card_tile(href, name, image, qty=none, caption='') -%}
-<a class="tile" href="{{ href }}" title="{{ name }}">{% if image %}<img src="{{ image }}" alt="{{ name }}" loading="lazy">{% else %}<span class="noimg">{{ name }}</span>{% endif %}{% if qty %}<span class="qty">{{ qty }}</span>{% endif %}<span class="cap">{{ caption or name }}</span></a>
+<a class="tile" {% if href %}href="{{ href }}"{% endif %} title="{{ name }}">{% if image %}<img src="{{ image }}" alt="{{ name }}" loading="lazy">{% else %}<span class="noimg">{{ name }}</span>{% endif %}{% if qty %}<span class="qty">{{ qty }}</span>{% endif %}<span class="cap">{{ caption or name }}</span></a>
+{%- endmacro %}
+
+{# Who can see a location (or a deck, via its location); owner only. #}
+{% macro sharing(loc) -%}
+<h2>Sharing</h2>
+<form method="post" action="{{ url_for('location_visibility', location_id=loc.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+<select name="visibility" aria-label="visibility">{% for v in VISIBILITIES %}<option value="{{ v }}" {{ 'selected' if v == loc.visibility }}>{{ VISIBILITY_NAMES[v] }}</option>{% endfor %}</select>
+<button>Save</button>
+{% if loc.visibility == 'link' %}<label><input type="checkbox" name="new_link" value="1"> new link (the old one stops working)</label>{% endif %}
+</form>
+{% if loc.visibility == 'link' and loc.share_token %}
+<p>Share link (read-only, no login needed): <input readonly size="60" value="{{ url_for('shared_link', token=loc.share_token, _external=True) }}" aria-label="share link"></p>
+{% elif loc.visibility == 'users' %}<p class="muted">Other users can see this on their People page (read-only).</p>
+{% else %}<p class="muted">Only you can see this.</p>{% endif %}
 {%- endmacro %}
 
 {% macro key_tags(row) -%}
@@ -40,22 +56,22 @@
 {%- endmacro %}
 
 {% macro stock_actions(row, locs) -%}
-<form class="inline" method="post" action="{{ url_for('stock_move') }}">{{ key_fields(row) }}
+<form class="inline" method="post" action="{{ url_for('stock_move') }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">{{ key_fields(row) }}
 <input type="hidden" name="from_id" value="{{ row.location_id }}">
 <input type="number" name="qty" value="1" min="1" max="{{ row.qty }}" aria-label="quantity to move">
 &rarr; <select name="to_id" aria-label="move to">
 {% for l in locs if l.id != row.location_id %}<option value="{{ l.id }}">{{ l.name }}</option>{% endfor %}
 </select> <button>Move</button></form>
-<form class="inline" method="post" action="{{ url_for('stock_adjust') }}">{{ key_fields(row) }}
+<form class="inline" method="post" action="{{ url_for('stock_adjust') }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">{{ key_fields(row) }}
 <input type="hidden" name="location_id" value="{{ row.location_id }}">
 <input type="number" name="qty" value="{{ row.qty }}" min="0" aria-label="corrected count"> <button title="Correct the count here (recorded as an adjustment)">Set count</button></form>
-<form class="inline" method="post" action="{{ url_for('stock_sell') }}">{{ key_fields(row) }}
+<form class="inline" method="post" action="{{ url_for('stock_sell') }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">{{ key_fields(row) }}
 <input type="hidden" name="location_id" value="{{ row.location_id }}">
 <input type="number" name="qty" value="1" min="1" max="{{ row.qty }}" aria-label="quantity to remove"> <button class="danger" title="Sold, traded away or lost">Remove</button></form>
 {%- endmacro %}
 
 {% macro movement_row(m, undo_col=false, first_of_batch=false) -%}
-<tr>{% if undo_col %}<td>{% if first_of_batch %}{% if m.undone %}<span class="muted">undone</span>{% elif not m.undo_of and m.reason != 'import' %}<form class="inline" method="post" action="{{ url_for('undo') }}"><input type="hidden" name="batch" value="{{ m.batch_id }}"><input type="hidden" name="next" value="{{ request.script_root ~ request.full_path }}"><button title="Reverse this whole action">Undo</button></form>{% endif %}{% endif %}</td>{% endif %}
+<tr>{% if undo_col %}<td>{% if first_of_batch %}{% if m.undone %}<span class="muted">undone</span>{% elif not m.undo_of and m.reason != 'import' %}<form class="inline" method="post" action="{{ url_for('undo') }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="batch" value="{{ m.batch_id }}"><input type="hidden" name="next" value="{{ request.script_root ~ request.full_path }}"><button title="Reverse this whole action">Undo</button></form>{% endif %}{% endif %}</td>{% endif %}
 <td class="mono">{{ m.ts[:16].replace('T', ' ') }}</td>
 <td>{{ m.reason }}</td>
 <td class="num">{{ m.qty }}</td>

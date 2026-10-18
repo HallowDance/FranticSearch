@@ -5,15 +5,19 @@
   sync [--force] [--file PATH]
                    update the Scryfall card cache (or import a local bulk file)
   check            verify stock against the ledger (exit 1 on mismatch)
+  user add NAME [--admin] [--password-stdin]
+  user passwd NAME [--password-stdin]
+  user list        manage accounts (the first admin adopts data from before users)
 """
 
 from __future__ import annotations
 
 import argparse
+import getpass
 import os
 import sys
 
-from . import db, ledger, scryfall
+from . import db, ledger, scryfall, users
 
 
 def _db_path(args: argparse.Namespace) -> str:
@@ -38,6 +42,16 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("check", help="verify stock against the ledger")
 
+    p_user = sub.add_parser("user", help="manage accounts")
+    usub = p_user.add_subparsers(dest="ucmd", required=True)
+    for name, help_ in (("add", "create an account"), ("passwd", "set an account's password")):
+        p = usub.add_parser(name, help=help_)
+        p.add_argument("name")
+        p.add_argument("--password-stdin", action="store_true", help="read the password from stdin")
+        if name == "add":
+            p.add_argument("--admin", action="store_true")
+    usub.add_parser("list", help="list accounts")
+
     args = parser.parse_args(argv)
     path = _db_path(args)
 
@@ -61,6 +75,8 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print(scryfall.sync(conn, force=args.force))
         return 0
+    if args.cmd == "user":
+        return _user_cmd(conn, args)
     if args.cmd == "check":
         problems = ledger.check(conn)
         if not problems:
@@ -71,6 +87,38 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{len(problems)} mismatch(es)", file=sys.stderr)
         return 1
     return 2
+
+
+def _read_password(args: argparse.Namespace) -> str:
+    if args.password_stdin:
+        return sys.stdin.readline().rstrip("\n")
+    pw = getpass.getpass("Password: ")
+    if pw != getpass.getpass("Repeat: "):
+        raise users.LedgerError("passwords don't match")
+    return pw
+
+
+def _user_cmd(conn, args: argparse.Namespace) -> int:
+    try:
+        if args.ucmd == "list":
+            for u in users.list_all(conn):
+                print(f"{u['username']:<20} {'admin' if u['is_admin'] else '':<6}"
+                      f" {u['locations']:>4} locations {u['copies']:>6} copies")
+            return 0
+        if args.ucmd == "add":
+            first_admin = args.admin and not any(u["is_admin"] for u in users.list_all(conn))
+            users.create(conn, args.name, _read_password(args), is_admin=args.admin)
+            print(f"created {args.name}" + (" (admin; adopted existing data)" if first_admin else ""))
+            return 0
+        user = users.by_name(conn, args.name)
+        if user is None:
+            raise users.LedgerError(f"no user {args.name!r}")
+        users.set_password(conn, user["id"], _read_password(args))
+        print(f"password set for {args.name}")
+        return 0
+    except users.LedgerError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

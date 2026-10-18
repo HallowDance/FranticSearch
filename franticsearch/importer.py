@@ -241,9 +241,10 @@ def _default_finish(p: sqlite3.Row) -> str:
 
 
 def default_key(
-    conn: sqlite3.Connection, candidates: list[sqlite3.Row], finish: str | None = None
+    conn: sqlite3.Connection, candidates: list[sqlite3.Row], finish: str | None = None,
+    owner: int | None = None,
 ) -> StockKey | None:
-    """A free owned printing (most copies outside decks), else the best printing.
+    """``owner``'s free printing (most copies outside decks), else the best printing.
 
     With ``finish``, only printings available in that finish are considered.
     """
@@ -255,12 +256,12 @@ def default_key(
     owned = conn.execute(
         f"""SELECT s.printing_id, s.finish, s.condition, s.lang, SUM(s.qty) AS n
               FROM stock s JOIN locations l ON l.id = s.location_id
-             WHERE l.type <> 'deck' AND s.printing_id IN ({','.join('?' * len(ids))})
+             WHERE l.type <> 'deck' AND l.owner_id = ? AND s.printing_id IN ({','.join('?' * len(ids))})
                AND (? IS NULL OR s.finish = ?)
              GROUP BY s.printing_id, s.finish, s.condition, s.lang
              ORDER BY n DESC LIMIT 1""",
-        [*ids, finish, finish],
-    ).fetchone()
+        [owner, *ids, finish, finish],
+    ).fetchone() if owner is not None else None
     if owned:
         return StockKey(owned["printing_id"], owned["finish"], owned["condition"], owned["lang"])
     today = date.today().isoformat()
@@ -268,8 +269,13 @@ def default_key(
     return StockKey(best["scryfall_id"], finish or _default_finish(best))
 
 
-def resolve(conn: sqlite3.Connection, line: Line, allow_default: bool) -> tuple[StockKey | None, str]:
-    """Map a line to a printing key. Returns (key, "") or (None, problem)."""
+def resolve(
+    conn: sqlite3.Connection, line: Line, allow_default: bool, owner: int | None = None
+) -> tuple[StockKey | None, str]:
+    """Map a line to a printing key. Returns (key, "") or (None, problem).
+
+    ``owner``: whose free copies the default printing prefers.
+    """
     if line.problem:
         return None, line.problem
     p = None
@@ -290,7 +296,7 @@ def resolve(conn: sqlite3.Connection, line: Line, allow_default: bool) -> tuple[
                 return None, f"{len(in_set)} printings of {line.name!r} in {line.set_code.upper()}"
             p = in_set[0]
         elif allow_default:
-            key = default_key(conn, named, line.finish)
+            key = default_key(conn, named, line.finish, owner)
             return (key, "") if key else (None, f"no {line.finish} printing of {line.name!r}")
         else:
             return None, "no set given"
@@ -308,8 +314,10 @@ def _sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def _check_new(conn: sqlite3.Connection, sha: str) -> None:
-    prev = conn.execute("SELECT id, ts FROM imports WHERE sha256 = ?", (sha,)).fetchone()
+def _check_new(conn: sqlite3.Connection, sha: str, owner: int | None) -> None:
+    prev = conn.execute(
+        "SELECT id, ts FROM imports WHERE sha256 = ? AND owner_id IS ?", (sha, owner)
+    ).fetchone()
     if prev:
         raise ImportFailed(f"this was already imported on {prev['ts'][:16].replace('T', ' ')} UTC"
                            f" (import #{prev['id']})")
@@ -330,11 +338,11 @@ def import_collection(
 ) -> int:
     """Import a collection CSV into one location. Returns the import id."""
     sha = _sha(data)
-    _check_new(conn, sha)
     lines = parse_collection_csv(data)
-    loc = conn.execute("SELECT type FROM locations WHERE id = ?", (location_id,)).fetchone()
+    loc = conn.execute("SELECT type, owner_id FROM locations WHERE id = ?", (location_id,)).fetchone()
     if loc is None:
         raise ImportFailed("unknown location")
+    _check_new(conn, sha, loc["owner_id"])
     if loc["type"] == "deck":
         raise ImportFailed("import into a binder or box; decks are filled by 'mark as built'")
     resolved: dict[StockKey, int] = {}
@@ -350,9 +358,9 @@ def import_collection(
             unresolved.append((line, problem))
     with transaction(conn):
         import_id = conn.execute(
-            "INSERT INTO imports(kind, filename, sha256, location_id, lines, imported, skipped)"
-            " VALUES ('collection', ?, ?, ?, ?, ?, ?)",
-            (filename, sha, location_id, len(lines), sum(resolved.values()), skipped),
+            "INSERT INTO imports(kind, filename, sha256, location_id, owner_id, lines, imported, skipped)"
+            " VALUES ('collection', ?, ?, ?, ?, ?, ?, ?)",
+            (filename, sha, location_id, loc["owner_id"], len(lines), sum(resolved.values()), skipped),
         ).lastrowid
         if resolved:
             batch = ledger.acquire_many(
@@ -371,23 +379,26 @@ def import_deck(
     format_: str = "",
     after_blank: str = "commander",
     filename: str = "",
+    *,
+    owner: int,
 ) -> int:
-    """Create a deck (and its location) from a deck list. Returns the import id."""
+    """Create ``owner``'s deck (and its location) from a deck list. Returns the import id."""
     normalized = "\n".join(l.rstrip() for l in text.replace("\r\n", "\n").strip().split("\n"))
     sha = _sha(normalized.encode())
-    _check_new(conn, sha)
+    _check_new(conn, sha, owner)
     lines = parse_deck_text(normalized, after_blank, first_is_commander=format_ in decks.COMMANDER_FORMATS)
     if not lines:
         raise ImportFailed("no cards found in the deck list")
     with transaction(conn):
-        deck_id = decks.create(conn, name, format_)
+        deck_id = decks.create(conn, name, format_, owner=owner)
         import_id = conn.execute(
-            "INSERT INTO imports(kind, filename, sha256, deck_id, lines) VALUES ('deck', ?, ?, ?, ?)",
-            (filename, sha, deck_id, len(lines)),
+            "INSERT INTO imports(kind, filename, sha256, deck_id, owner_id, lines)"
+            " VALUES ('deck', ?, ?, ?, ?, ?)",
+            (filename, sha, deck_id, owner, len(lines)),
         ).lastrowid
         imported = 0
         for line in lines:
-            key, problem = resolve(conn, line, allow_default=True)
+            key, problem = resolve(conn, line, allow_default=True, owner=owner)
             if key:
                 try:
                     decks.add_slot(conn, deck_id, key, line.board, line.qty)
@@ -412,7 +423,7 @@ def paste_into(
     Quick entry, not a file import: no hash, no queue. Lines without a set get the
     default printing. Returns (batch id or None, copies added, [(line, problem)]).
     """
-    loc = conn.execute("SELECT type FROM locations WHERE id = ?", (location_id,)).fetchone()
+    loc = conn.execute("SELECT type, owner_id FROM locations WHERE id = ?", (location_id,)).fetchone()
     if loc is None:
         raise LedgerError("unknown location")
     if loc["type"] == "deck":
@@ -420,7 +431,7 @@ def paste_into(
     resolved: dict[StockKey, int] = {}
     left = []
     for line in parse_deck_text(text):
-        key, problem = resolve(conn, line, allow_default=True)
+        key, problem = resolve(conn, line, allow_default=True, owner=loc["owner_id"])
         if key:
             resolved[key] = resolved.get(key, 0) + line.qty
         else:
@@ -445,13 +456,14 @@ def get_import(conn: sqlite3.Connection, import_id: int) -> sqlite3.Row | None:
     ).fetchone()
 
 
-def list_imports(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+def list_imports(conn: sqlite3.Connection, owner: int) -> list[sqlite3.Row]:
     return conn.execute(
         """SELECT i.*, l.name AS location_name, d.name AS deck_name,
                   (SELECT COUNT(*) FROM import_unresolved u
                     WHERE u.import_id = i.id AND u.status = 'open') AS open
              FROM imports i LEFT JOIN locations l ON l.id = i.location_id
-             LEFT JOIN decks d ON d.id = i.deck_id ORDER BY i.id DESC"""
+             LEFT JOIN decks d ON d.id = i.deck_id WHERE i.owner_id = ? ORDER BY i.id DESC""",
+        (owner,),
     ).fetchall()
 
 

@@ -17,10 +17,13 @@ from flask import (
 from markupsafe import Markup, escape
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import __version__, db, decks, importer, ledger, locations, queries, scryfall
+from . import __version__, db, decks, importer, ledger, locations, queries, scryfall, users
 from .ledger import CONDITION_NAMES, CONDITIONS, FINISHES, LANGUAGES, LedgerError, StockKey
 
 log = logging.getLogger(__name__)
+
+# Reachable without logging in (share links are read-only and unguessable).
+PUBLIC_ENDPOINTS = {"login", "static", "shared_link"}
 
 # How card lists are shown: a text table (with actions) or a grid of card images.
 VIEWS = ("text", "images")
@@ -37,6 +40,10 @@ def create_app(config: dict | None = None) -> Flask:
         # Behind a reverse proxy: trust its X-Forwarded-For/-Proto/-Host/-Prefix headers
         # (e.g. nginx serving the app under /franticsearch/). Off by default.
         PROXY=os.environ.get("FS_PROXY", "0") not in ("0", "false", "no", ""),
+        CSRF=True,
+        SESSION_COOKIE_SAMESITE="Lax",
+        # Set FS_SECURE_COOKIE=1 when the app is only reached over HTTPS.
+        SESSION_COOKIE_SECURE=os.environ.get("FS_SECURE_COOKIE", "0") not in ("0", "false", "no", ""),
     )
     app.config.update(config or {})
     if app.config["PROXY"]:
@@ -58,6 +65,23 @@ def create_app(config: dict | None = None) -> Flask:
         if request.args.get("view") in VIEWS:  # card list view, remembered for the session
             session["view"] = request.args["view"]
 
+    @app.before_request
+    def _auth():
+        """The single auth hook: who is logged in, login required, CSRF on every POST."""
+        g.user = users.get(g.db, session.get("uid"))
+        if request.method == "POST" and app.config["CSRF"]:
+            sent = request.form.get("csrf", "")
+            if not sent or not secrets.compare_digest(sent, session.get("csrf", "")):
+                abort(400, "missing or stale form token; reload the page and try again")
+        if g.user is None and request.endpoint not in PUBLIC_ENDPOINTS:
+            return redirect(url_for("login", next=request.script_root + request.full_path))
+        return None
+
+    def _csrf_token() -> str:
+        if "csrf" not in session:
+            session["csrf"] = secrets.token_urlsafe(24)
+        return session["csrf"]
+
     @app.teardown_request
     def _close_db(_exc: BaseException | None) -> None:
         conn = g.pop("db", None)
@@ -78,6 +102,10 @@ def create_app(config: dict | None = None) -> Flask:
             "FORMATS": decks.FORMATS,
             "last_location": session.get("last_location"),
             "view": session.get("view", "text"),
+            "user": g.get("user"),
+            "csrf_token": _csrf_token,
+            "VISIBILITIES": locations.VISIBILITIES,
+            "VISIBILITY_NAMES": locations.VISIBILITY_NAMES,
         }
 
     @app.template_filter("fromjson")
@@ -161,9 +189,75 @@ def _back(default: str) -> str:
     return nxt if nxt.startswith("/") and not nxt.startswith("//") else default
 
 
+def _uid() -> int:
+    return g.user["id"]
+
+
 def _manual_locations(conn: sqlite3.Connection) -> list[sqlite3.Row]:
-    """Locations offered in manual forms. Deck locations change via pull/return lists."""
-    return [l for l in locations.list_all(conn) if l["type"] != "deck"]
+    """The user's locations offered in manual forms. Deck locations change via pull/return lists."""
+    return [l for l in locations.list_all(conn, _uid()) if l["type"] != "deck"]
+
+
+# Ownership checks: anything that isn't the logged-in user's is "not found".
+
+def _my_location(location_id: int | None) -> sqlite3.Row:
+    loc = locations.get(g.db, location_id) if location_id is not None else None
+    if loc is None or loc["owner_id"] != _uid():
+        abort(404)
+    return loc
+
+
+def _my_location_arg(name: str) -> int:
+    """A location id from the form that must belong to the user (LedgerError if missing)."""
+    value = _int_arg(name)
+    if value is None:
+        raise LedgerError("choose a location")
+    return _my_location(value)["id"]
+
+
+def _my_deck(deck_id: int) -> sqlite3.Row:
+    deck = decks.get(g.db, deck_id)
+    if deck is None:
+        abort(404)
+    _my_location(deck["location_id"])
+    return deck
+
+
+def _my_import(import_id: int) -> sqlite3.Row:
+    imp = importer.get_import(g.db, import_id)
+    if imp is None or imp["owner_id"] != _uid():
+        abort(404)
+    return imp
+
+
+def _my_unresolved(uid: int) -> tuple[sqlite3.Row, sqlite3.Row]:
+    u = importer.get_unresolved(g.db, uid)
+    if u is None:
+        abort(404)
+    return u, _my_import(u["import_id"])
+
+
+def _deck_context(deck: sqlite3.Row) -> dict:
+    """Slots grouped and sorted for the deck page (owner and shared views)."""
+    sort = request.args.get("sort", "name")
+    keys = {"name": lambda s: s["name"].lower(), "cost": lambda s: (s["cmc"] or 0, s["name"].lower()),
+            "qty": lambda s: (s["qty_wanted"], s["name"].lower())}
+    key = keys.get(sort.lstrip("-"), keys["name"])
+    slots = decks.slots(g.db, deck["id"])
+    boards = {b: [s for s in slots if s["board"] == b] for b in decks.BOARDS}
+    return dict(
+        deck=deck, slots=slots, sort=sort,
+        groups=[(g_, rows[::-1] if sort.startswith("-") else rows)
+                for g_, rows in decks.grouped(boards["main"], key)],
+        others={b: sorted(boards[b], key=key, reverse=sort.startswith("-"))
+                for b in ("commander", "side", "maybe")},
+        curve=decks.mana_curve(boards["main"] + boards["commander"]),
+    )
+
+
+def _admin_only() -> None:
+    if not g.user["is_admin"]:
+        abort(403)
 
 
 def _run_sync_in_background(db_path: str, force: bool) -> None:
@@ -206,8 +300,8 @@ def _register_routes(app: Flask) -> None:
         conn = g.db
         return render_template(
             "index.html",
-            totals=queries.totals(conn),
-            locs=locations.list_all(conn),
+            totals=queries.totals(conn, _uid()),
+            locs=locations.list_all(conn, _uid()),
             sync_status=db.get_meta(conn, "sync_status", "never run"),
             last_sync_at=db.get_meta(conn, "last_sync_at"),
         )
@@ -226,10 +320,10 @@ def _register_routes(app: Flask) -> None:
             page=_int_arg("page", 1) or 1,
             sort=request.args.get("sort", "name"),
         )
-        rows, total = queries.collection(conn, f)
+        rows, total = queries.collection(conn, f, _uid())
         return render_template(
             "collection.html", rows=rows, total=total, f=f,
-            locs=locations.list_all(conn), page_size=queries.PAGE_SIZE,
+            locs=locations.list_all(conn, _uid()), page_size=queries.PAGE_SIZE,
         )
 
     @app.get("/card/<card_key>")
@@ -238,7 +332,7 @@ def _register_routes(app: Flask) -> None:
         printings = queries.card_printings(conn, card_key)
         if not printings:
             abort(404)
-        stock = queries.card_stock(conn, card_key)
+        stock = queries.card_stock(conn, card_key, _uid())
         selected = request.args.get("printing")
         shown = next((p for p in printings if p["scryfall_id"] == selected), None)
         if shown is None and stock:
@@ -247,7 +341,8 @@ def _register_routes(app: Flask) -> None:
         return render_template(
             "card.html", printings=printings, stock=stock, shown=shown,
             card_key=card_key, locs=_manual_locations(conn),
-            history=queries.history(conn, card_key=card_key)[:20],
+            history=queries.history(conn, _uid(), card_key=card_key)[:20],
+            others=queries.shared_stock(conn, card_key, _uid()),
         )
 
     # ---- adding cards
@@ -273,11 +368,9 @@ def _register_routes(app: Flask) -> None:
             printings = queries.card_printings(conn, request.form.get("card_key", ""))
             if not printings:
                 raise LedgerError("unknown card")
-            loc = _int_arg("location_id")
-            if loc is None:
-                raise LedgerError("choose a location")
+            loc = _my_location_arg("location_id")
             qty = _form_qty()
-            key = importer.default_key(conn, printings)
+            key = importer.default_key(conn, printings, owner=_uid())
             batch = ledger.acquire(conn, loc, key, qty)
             _remember_location(loc)
             p = next(p for p in printings if p["scryfall_id"] == key.printing_id)
@@ -290,8 +383,11 @@ def _register_routes(app: Flask) -> None:
 
     @app.post("/undo")
     def undo():
+        batch = request.form.get("batch", "")
+        if ledger.batch_owners(g.db, batch) != {_uid()}:
+            abort(404)
         try:
-            ledger.undo(g.db, request.form.get("batch", ""))
+            ledger.undo(g.db, batch)
             flash("Undone.", "ok")
         except LedgerError as e:
             flash(str(e), "error")
@@ -302,9 +398,7 @@ def _register_routes(app: Flask) -> None:
         conn = g.db
         key = _form_key()
         try:
-            loc = _int_arg("location_id")
-            if loc is None:
-                raise LedgerError("choose a location")
+            loc = _my_location_arg("location_id")
             qty = _form_qty()
             batch = ledger.acquire(conn, loc, key, qty, note=request.form.get("note", "").strip())
             _remember_location(loc)
@@ -320,9 +414,7 @@ def _register_routes(app: Flask) -> None:
         conn = g.db
         key = _form_key()
         try:
-            src, dst = _int_arg("from_id"), _int_arg("to_id")
-            if src is None or dst is None:
-                raise LedgerError("choose a destination")
+            src, dst = _my_location_arg("from_id"), _my_location_arg("to_id")
             qty = _form_qty()
             batch = ledger.move(conn, src, dst, key, qty, note=request.form.get("note", "").strip())
             _done(f"Moved {qty}.", batch)
@@ -335,9 +427,7 @@ def _register_routes(app: Flask) -> None:
         conn = g.db
         key = _form_key()
         try:
-            loc = _int_arg("location_id")
-            if loc is None:
-                raise LedgerError("missing location")
+            loc = _my_location_arg("location_id")
             qty = _form_qty()
             batch = ledger.adjust(conn, loc, key, qty, note=request.form.get("note", "").strip())
             if batch:
@@ -353,9 +443,7 @@ def _register_routes(app: Flask) -> None:
         conn = g.db
         key = _form_key()
         try:
-            loc = _int_arg("location_id")
-            if loc is None:
-                raise LedgerError("missing location")
+            loc = _my_location_arg("location_id")
             qty = _form_qty()
             batch = ledger.sell(conn, loc, key, qty, note=request.form.get("note", "").strip())
             _done(f"Removed {qty} from the collection.", batch)
@@ -368,15 +456,16 @@ def _register_routes(app: Flask) -> None:
     @app.get("/locations")
     def locations_list():
         return render_template(
-            "locations.html", locs=locations.list_all(g.db),
-            archived=locations.list_all(g.db, archived=True),
+            "locations.html", locs=locations.list_all(g.db, _uid()),
+            archived=locations.list_all(g.db, _uid(), archived=True),
         )
 
     @app.post("/locations")
     def locations_create():
         f = request.form
         try:
-            loc_id = locations.create(g.db, f.get("name", ""), f.get("type", ""), f.get("notes", ""))
+            loc_id = locations.create(g.db, f.get("name", ""), f.get("type", ""), f.get("notes", ""),
+                                      owner=_uid())
             flash("Location created.", "ok")
             return redirect(url_for("location_view", location_id=loc_id))
         except LedgerError as e:
@@ -387,8 +476,10 @@ def _register_routes(app: Flask) -> None:
     def location_view(location_id: int):
         conn = g.db
         loc = locations.get(conn, location_id)
-        if loc is None:
+        if loc is None or not locations.can_view(loc, _uid()):
             abort(404)
+        if loc["owner_id"] != _uid():  # someone else's shared location: read-only
+            return _render_shared(loc)
         # lines a paste couldn't match: shown (prefilled) once, on this location's page
         paste = session.pop("paste") if (session.get("paste") or {}).get("loc") == location_id else None
         return render_template(
@@ -397,17 +488,16 @@ def _register_routes(app: Flask) -> None:
             deck=decks.by_location(conn, location_id), tick_all=request.args.get("all") == "1",
             paste=paste,
             locs=_manual_locations(conn), has_history=locations.has_history(conn, location_id),
-            history=queries.history(conn, location_id=location_id)[:20],
+            history=queries.history(conn, _uid(), location_id=location_id)[:20],
         )
 
     @app.post("/locations/<int:location_id>/move-selected")
     def location_move_selected(location_id: int):
         conn = g.db
+        _my_location(location_id)
         back = _back(url_for("location_view", location_id=location_id))
         try:
-            dst = _int_arg("to_id")
-            if dst is None:
-                raise LedgerError("choose a destination")
+            dst = _my_location_arg("to_id")
             items = []
             for row in request.form.getlist("row"):
                 parts = row.split("|")
@@ -427,6 +517,7 @@ def _register_routes(app: Flask) -> None:
     @app.post("/locations/<int:location_id>/paste")
     def location_paste(location_id: int):
         conn = g.db
+        _my_location(location_id)
         session.pop("paste", None)
         try:
             batch, added, left = importer.paste_into(conn, location_id, request.form.get("text", ""))
@@ -447,6 +538,7 @@ def _register_routes(app: Flask) -> None:
     @app.post("/locations/<int:location_id>/edit")
     def location_edit(location_id: int):
         f = request.form
+        _my_location(location_id)
         try:
             locations.update(g.db, location_id, f.get("name", ""), f.get("type", ""), f.get("notes", ""))
             flash("Location saved.", "ok")
@@ -456,6 +548,7 @@ def _register_routes(app: Flask) -> None:
 
     @app.post("/locations/<int:location_id>/archive")
     def location_archive(location_id: int):
+        _my_location(location_id)
         archive = request.form.get("archived") == "1"
         try:
             locations.set_archived(g.db, location_id, archive)
@@ -466,6 +559,7 @@ def _register_routes(app: Flask) -> None:
 
     @app.post("/locations/<int:location_id>/delete")
     def location_delete(location_id: int):
+        _my_location(location_id)
         try:
             locations.delete(g.db, location_id)
             flash("Location deleted.", "ok")
@@ -481,7 +575,7 @@ def _register_routes(app: Flask) -> None:
         conn = g.db
         locs = _manual_locations(conn)
         return render_template(
-            "import.html", imports=importer.list_imports(conn), locs=locs,
+            "import.html", imports=importer.list_imports(conn, _uid()), locs=locs,
             has_unsorted=any(l["name"].lower() == UNSORTED.lower() for l in locs),
             unsorted=UNSORTED,
         )
@@ -490,19 +584,20 @@ def _register_routes(app: Flask) -> None:
     def import_collection():
         conn = g.db
         upload = request.files.get("file")
+        if request.form.get("location_id") != "new":
+            _my_location(_int_arg("location_id"))   # someone else's location: not found
         try:
             if not upload or not upload.filename:
                 raise LedgerError("choose a CSV file")
             data = upload.read()
             if request.form.get("location_id") == "new":
                 loc = conn.execute(
-                    "SELECT id FROM locations WHERE name = ? COLLATE NOCASE", (UNSORTED,)
+                    "SELECT id FROM locations WHERE owner_id = ? AND name = ? COLLATE NOCASE",
+                    (_uid(), UNSORTED),
                 ).fetchone()
-                loc_id = loc["id"] if loc else locations.create(conn, UNSORTED, "box")
+                loc_id = loc["id"] if loc else locations.create(conn, UNSORTED, "box", owner=_uid())
             else:
-                loc_id = _int_arg("location_id")
-                if loc_id is None:
-                    raise LedgerError("choose a location")
+                loc_id = _my_location_arg("location_id")
             import_id = importer.import_collection(conn, data, loc_id, filename=upload.filename)
         except LedgerError as e:
             flash(str(e), "error")
@@ -530,7 +625,7 @@ def _register_routes(app: Flask) -> None:
             name = f.get("name", "").strip() or os.path.splitext(filename)[0]
             import_id = importer.import_deck(
                 conn, text, name, f.get("format", ""), f.get("after_blank", "commander"),
-                filename=filename,
+                filename=filename, owner=_uid(),
             )
         except LedgerError as e:
             flash(str(e), "error")
@@ -545,9 +640,7 @@ def _register_routes(app: Flask) -> None:
     @app.get("/import/<int:import_id>")
     def import_view(import_id: int):
         conn = g.db
-        imp = importer.get_import(conn, import_id)
-        if imp is None:
-            abort(404)
+        imp = _my_import(import_id)
         return render_template(
             "import_view.html", imp=imp, rows=importer.unresolved(conn, import_id),
             commanders=decks.commander_names(conn, imp["deck_id"]) if imp["deck_id"] else [],
@@ -556,13 +649,11 @@ def _register_routes(app: Flask) -> None:
     @app.get("/import/line/<int:uid>")
     def import_fix(uid: int):
         conn = g.db
-        u = importer.get_unresolved(conn, uid)
-        if u is None:
-            abort(404)
+        u, imp = _my_unresolved(uid)
         q = request.args.get("q", u["name"]).strip()
         card_key = request.args.get("card")
         return render_template(
-            "import_fix.html", u=u, imp=importer.get_import(conn, u["import_id"]), q=q,
+            "import_fix.html", u=u, imp=imp, q=q,
             results=queries.search_cards(conn, q) if q and not card_key else [],
             printings=queries.card_printings(conn, card_key) if card_key else [],
             card_key=card_key,
@@ -571,9 +662,7 @@ def _register_routes(app: Flask) -> None:
     @app.post("/import/line/<int:uid>/fix")
     def import_fix_post(uid: int):
         conn = g.db
-        u = importer.get_unresolved(conn, uid)
-        if u is None:
-            abort(404)
+        u, _ = _my_unresolved(uid)
         try:
             importer.fix(conn, uid, _form_key(), _form_qty())
             flash("Line fixed.", "ok")
@@ -585,9 +674,7 @@ def _register_routes(app: Flask) -> None:
     @app.post("/import/line/<int:uid>/dismiss")
     def import_dismiss(uid: int):
         conn = g.db
-        u = importer.get_unresolved(conn, uid)
-        if u is None:
-            abort(404)
+        u, _ = _my_unresolved(uid)
         try:
             importer.dismiss(conn, uid)
             flash("Line dismissed.", "ok")
@@ -599,34 +686,127 @@ def _register_routes(app: Flask) -> None:
 
     @app.get("/decks")
     def decks_list():
-        return render_template("decks.html", decks=decks.list_all(g.db))
+        return render_template("decks.html", decks=decks.list_all(g.db, _uid()))
 
     @app.get("/decks/<int:deck_id>")
     def deck_view(deck_id: int):
         conn = g.db
         deck = decks.get(conn, deck_id)
-        if deck is None:
+        loc = locations.get(conn, deck["location_id"]) if deck else None
+        if not locations.can_view(loc, _uid()):
             abort(404)
+        if loc["owner_id"] != _uid():
+            return _render_shared(loc)
         imp = conn.execute("SELECT id FROM imports WHERE deck_id = ?", (deck_id,)).fetchone()
-        sort = request.args.get("sort", "name")
-        keys = {"name": lambda s: s["name"].lower(), "cost": lambda s: (s["cmc"] or 0, s["name"].lower()),
-                "qty": lambda s: (s["qty_wanted"], s["name"].lower())}
-        key = keys.get(sort.lstrip("-"), keys["name"])
-        slots = decks.slots(conn, deck_id)
-        boards = {b: [s for s in slots if s["board"] == b] for b in decks.BOARDS}
         return render_template(
-            "deck.html", deck=deck, slots=slots, sort=sort,
-            groups=[(g_, rows[::-1] if sort.startswith("-") else rows)
-                    for g_, rows in decks.grouped(boards["main"], key)],
-            others={b: sorted(boards[b], key=key, reverse=sort.startswith("-"))
-                    for b in ("commander", "side", "maybe")},
-            curve=decks.mana_curve(boards["main"] + boards["commander"]),
+            "deck.html", **_deck_context(deck), loc=loc, readonly=False,
             import_id=imp["id"] if imp else None,
             deletable=not locations.has_history(conn, deck["location_id"]),
         )
 
+    def _render_shared(loc: sqlite3.Row, anonymous: bool = False):
+        """Read-only view of a shared location (or deck) for other users / share links."""
+        conn = g.db
+        owner = users.get(conn, loc["owner_id"])
+        deck = decks.by_location(conn, loc["id"])
+        if deck:
+            return render_template("deck.html", **_deck_context(deck), loc=loc, readonly=True,
+                                   owner=owner, anonymous=anonymous)
+        return render_template(
+            "shared.html", loc=loc, owner=owner, anonymous=anonymous,
+            stock=queries.location_stock(conn, loc["id"], request.args.get("sort", "name")),
+        )
+
+    @app.get("/s/<token>")
+    def shared_link(token: str):
+        loc = locations.by_token(g.db, token)
+        if loc is None or loc["archived"]:
+            abort(404)
+        return _render_shared(loc, anonymous=g.user is None)
+
+    @app.get("/people")
+    def people():
+        return render_template("people.html", shared=locations.shared(g.db, _uid()))
+
+    @app.post("/locations/<int:location_id>/visibility")
+    def location_visibility(location_id: int):
+        loc = _my_location(location_id)
+        try:
+            locations.set_visibility(g.db, location_id, request.form.get("visibility", ""),
+                                     new_link=request.form.get("new_link") == "1")
+            flash("Sharing updated.", "ok")
+        except LedgerError as e:
+            flash(str(e), "error")
+        deck = decks.by_location(g.db, loc["id"])
+        return redirect(url_for("deck_view", deck_id=deck["id"]) if deck
+                        else url_for("location_view", location_id=location_id))
+
+    # ---- accounts
+
+    @app.route("/login", methods=["GET", "POST"])
+    def login():
+        conn = g.db
+        nxt = request.values.get("next", "")
+        nxt = nxt if nxt.startswith("/") and not nxt.startswith("//") else url_for("index")
+        if request.method == "POST":
+            user = users.authenticate(conn, request.form.get("username", ""),
+                                      request.form.get("password", ""))
+            if user:
+                session.clear()  # new session id contents: no fixation, fresh CSRF token
+                session["uid"] = user["id"]
+                return redirect(nxt)
+            flash("Wrong username or password.", "error")
+        return render_template("login.html", next=nxt, no_users=users.count(conn) == 0)
+
+    @app.post("/logout")
+    def logout():
+        session.clear()
+        flash("Logged out.", "ok")
+        return redirect(url_for("login"))
+
+    @app.route("/account", methods=["GET", "POST"])
+    def account():
+        if request.method == "POST":
+            f = request.form
+            try:
+                if not users.authenticate(g.db, g.user["username"], f.get("current", "")):
+                    raise LedgerError("current password is wrong")
+                if f.get("new", "") != f.get("repeat", ""):
+                    raise LedgerError("the new passwords don't match")
+                users.set_password(g.db, _uid(), f.get("new", ""))
+                flash("Password changed.", "ok")
+            except LedgerError as e:
+                flash(str(e), "error")
+            return redirect(url_for("account"))
+        return render_template("account.html")
+
+    @app.route("/admin/users", methods=["GET", "POST"])
+    def admin_users():
+        _admin_only()
+        if request.method == "POST":
+            f = request.form
+            try:
+                users.create(g.db, f.get("username", ""), f.get("password", ""),
+                             is_admin=f.get("is_admin") == "1")
+                flash(f"User {f.get('username', '').strip()} created.", "ok")
+            except LedgerError as e:
+                flash(str(e), "error")
+            return redirect(url_for("admin_users"))
+        return render_template("admin_users.html", users=users.list_all(g.db))
+
+    @app.post("/admin/users/<int:user_id>/password")
+    def admin_set_password(user_id: int):
+        _admin_only()
+        try:
+            users.set_password(g.db, user_id, request.form.get("password", ""))
+            flash("Password set.", "ok")
+        except LedgerError as e:
+            flash(str(e), "error")
+        return redirect(url_for("admin_users"))
+
     @app.post("/decks/<int:deck_id>/delete")
     def deck_delete(deck_id: int):
+        _my_deck(deck_id)
         try:
             decks.delete(g.db, deck_id)
             flash("Deck deleted.", "ok")
@@ -643,24 +823,26 @@ def _register_routes(app: Flask) -> None:
         loc = _int_arg("location")
         page = _int_arg("page", 1) or 1
         return render_template(
-            "history.html", rows=queries.history(conn, location_id=loc, page=page),
-            locs=locations.list_all(conn, archived=None), location=loc, page=page,
+            "history.html", rows=queries.history(conn, _uid(), location_id=loc, page=page),
+            locs=locations.list_all(conn, _uid(), archived=None), location=loc, page=page,
             page_size=queries.PAGE_SIZE,
         )
 
     @app.get("/system")
     def system():
+        _admin_only()
         conn = g.db
         meta = {r["key"]: r["value"] for r in conn.execute("SELECT * FROM meta WHERE key <> 'secret_key'")}
         return render_template(
             "system.html", meta=meta, running=scryfall.is_running(),
-            schema=db.schema_version(conn), totals=queries.totals(conn),
+            schema=db.schema_version(conn), totals=queries.totals(conn, None),
             problems=ledger.check(conn) if request.args.get("check") else None,
             db_path=app.config["DATABASE"], auto_sync=app.config["AUTO_SYNC"],
         )
 
     @app.post("/system/sync")
     def system_sync():
+        _admin_only()
         if scryfall.is_running():
             flash("A sync is already running.", "error")
         else:

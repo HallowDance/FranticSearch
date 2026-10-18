@@ -107,6 +107,11 @@ Decided 2026-10-18: a few people on one instance, each with a **separate collect
 - **Visibility per location** (and so per deck, via its deck location): `private` (default) · `users` (any logged-in user) · `link` (anyone with an unguessable share URL `/s/<token>`, no login). Shared views are **read-only**: contents with quantities, the image view, the deck page. No history, notes or actions. A link can be revoked (new token).
 - **Discovery**: a "People" page lists users and their shared locations. Card pages show copies in other users' shared locations ("Alex: 2 in Trade binder").
 - **Per user**: last location, view mode, undo. Undo only for your own batches.
+- **Shared views never show the owner's private data**: a shared deck shows qty / card / cost / printing only. No "where (free)" columns, which would name the owner's other locations.
+- Implementation notes (2026-10-18):
+  - Migration 005 rebuilds `locations` (owner, visibility, share token, `UNIQUE(owner_id, name)`) and `imports` (owner, `UNIQUE(owner_id, sha256)`). The runner turns foreign keys off per migration and runs `foreign_key_check` before COMMIT.
+  - Ownership is enforced in two places. Routes 404 on anything not yours, via `_my_location` / `_my_deck` / `_my_import` / `_my_unresolved` and batch owners for undo. The ledger refuses moves between two owners' locations.
+  - Sessions are cleared on login. Cookies: `SameSite=Lax`; `FS_SECURE_COOKIE=1` for `Secure` when only reached over HTTPS.
 - **Later: trades.** Moving copies from one user's location to another's as a confirmed two-sided action, a `trade` reason pair in both ledgers. The schema above doesn't block it.
 
 ## Import / migration from Moxfield
@@ -142,8 +147,8 @@ Domain logic (`ledger.py`, later pull/return planning and import parsing) is fra
 |---|---|---|---|
 | 1 | Foundation | Repo scaffold, Docker, schema + migrations, Scryfall sync, locations CRUD, stock + ledger with invariant check, collection browser, manual add/move/adjust | **Shipped** (PR #1). `docker compose up --build` itself not yet verified |
 | 2 | Import | Moxfield collection CSV, deck text import, unresolved queue | **Shipped** (PR #2). Collection CSV not yet tested with a real Moxfield export |
-| 2b | Users & sharing | Accounts (admin-created), login + CSRF, per-user collections, ownership checks on every route, location visibility (private / users / link), People page, others' copies on card pages | Next (decided 2026-10-18, see § Users & sharing) |
-| 3 | Card search | Local search over `printings` (name/type/text/colors/MV/set/legality), ownership-aware results | After 2b. Name search, nav search and quick add exist already |
+| 2b | Users & sharing | Accounts (admin-created), login + CSRF, per-user collections, ownership checks on every route, location visibility (private / users / link), People page, others' copies on card pages | **Shipped** (branch `phase-2b`) |
+| 3 | Card search | Local search over `printings` (name/type/text/colors/MV/set/legality), ownership-aware results | Next. Name search, nav search and quick add exist already |
 | 4 | Decks | Deck editor (slots, boards, proxies, printing switch), live stats + legality, derived deck state, pull list, return list, "mark as built" | Partly: read-only deck page with type groups, mana curve, in-deck/free counts (PR #2, #4) |
 | 5 | Shortfalls | Proxies, cross-deck buy list, exports | Not started |
 | 6 | Polish | Batch undo, ledger views, mobile layout pass, backup/restore | Partly: batch undo shipped (PR #4) |

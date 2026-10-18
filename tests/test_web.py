@@ -1,11 +1,11 @@
-from conftest import BOLT, SOL_C21, SOL_CMM, SOL_ORACLE
+from conftest import ALICE, BOLT, PASSWORD, SOL_C21, SOL_CMM, SOL_ORACLE, login_as
 
 from franticsearch import ledger, locations
 from franticsearch.ledger import StockKey
 
 
 def test_pages_render(client, conn):
-    loc = locations.create(conn, "Binder A", "binder")
+    loc = locations.create(conn, "Binder A", "binder", owner=ALICE)
     ledger.acquire(conn, loc, StockKey(SOL_C21), 2)
     for url in ["/", "/collection", "/collection?q=sol&notindeck=1", "/add?q=sol",
                 f"/card/{SOL_ORACLE}", "/locations", f"/locations/{loc}", "/history",
@@ -45,13 +45,14 @@ def test_full_manual_flow(client, conn):
 
 
 def test_redirect_next_must_be_local(client, conn):
-    r = client.post("/stock/sell", data={"printing_id": "x", "qty": "1", "location_id": "1",
+    loc = locations.create(conn, "Binder A", "binder", owner=ALICE)
+    r = client.post("/stock/sell", data={"printing_id": "x", "qty": "1", "location_id": loc,
                                          "next": "//evil.example/"})
     assert r.headers["Location"] == "/collection"
 
 
 def test_archive_via_web(client, conn):
-    loc = locations.create(conn, "Old binder", "binder")
+    loc = locations.create(conn, "Old binder", "binder", owner=ALICE)
     ledger.acquire(conn, loc, StockKey(SOL_C21), 1)
     assert b"Archive location" in client.get(f"/locations/{loc}").data
     r = client.post(f"/locations/{loc}/archive", data={"archived": "1"}, follow_redirects=True)
@@ -109,7 +110,7 @@ def test_collection_csv_upload_creates_unsorted(client, conn):
 
 
 def test_card_links_carry_hover_image(client, conn):
-    loc = locations.create(conn, "Binder A", "binder")
+    loc = locations.create(conn, "Binder A", "binder", owner=ALICE)
     ledger.acquire(conn, loc, StockKey(SOL_C21), 1)
     client.post("/import/deck", data={"text": "1 Sol Ring (C21) 263", "name": "D", "format": ""})
     deck_id = conn.execute("SELECT id FROM decks").fetchone()[0]
@@ -121,21 +122,22 @@ def test_card_links_carry_hover_image(client, conn):
 
 def test_behind_proxy_under_a_path_prefix(conn, db_path):
     from franticsearch.app import create_app
-    app = create_app({"DATABASE": db_path, "AUTO_SYNC": False, "TESTING": True, "PROXY": True})
-    c = app.test_client()
+    app = create_app({"DATABASE": db_path, "AUTO_SYNC": False, "TESTING": True, "PROXY": True,
+                      "CSRF": False})
+    c = login_as(app.test_client(), ALICE)
     h = {"X-Forwarded-Prefix": "/franticsearch", "X-Forwarded-Proto": "https",
          "X-Forwarded-Host": "example.org"}
     page = c.get("/locations", headers=h).data
     assert b'href="/franticsearch/collection"' in page and b"/franticsearch/static/style.css" in page
     r = c.post("/locations", data={"name": "Binder A", "type": "binder"}, headers=h)
     assert r.headers["Location"].startswith("/franticsearch/locations/")
-    loc = locations.list_all(conn)[0]["id"]
+    loc = locations.list_all(conn, ALICE)[0]["id"]
     ledger.acquire(conn, loc, StockKey(SOL_C21), 1)
     page = c.get(f"/locations/{loc}", headers=h).data
     assert b'name="next" value="/franticsearch/locations/' in page
     # without the proxy setting, forwarded headers are ignored
     from franticsearch.app import create_app as plain
-    p = plain({"DATABASE": db_path, "AUTO_SYNC": False, "TESTING": True}).test_client()
+    p = login_as(plain({"DATABASE": db_path, "AUTO_SYNC": False, "TESTING": True}).test_client(), ALICE)
     assert b"/franticsearch/" not in p.get("/locations", headers=h).data
 
 
@@ -148,7 +150,7 @@ def test_mana_symbols_are_escaped_images():
 
 
 def test_quick_add_nav_search_and_undo(client, conn):
-    loc = locations.create(conn, "Binder A", "binder")
+    loc = locations.create(conn, "Binder A", "binder", owner=ALICE)
     page = client.get("/add?q=sol").data
     assert b"Quick add" in page and b"card-symbols/1.svg" in page
     r = client.post("/stock/quick-add", data={"card_key": SOL_ORACLE, "qty": "2", "location_id": loc,
@@ -169,8 +171,8 @@ def test_quick_add_nav_search_and_undo(client, conn):
 
 
 def test_location_bulk_move_paste_and_sort(client, conn):
-    a = locations.create(conn, "Binder A", "binder")
-    b = locations.create(conn, "Box B", "box")
+    a = locations.create(conn, "Binder A", "binder", owner=ALICE)
+    b = locations.create(conn, "Box B", "box", owner=ALICE)
     r = client.post(f"/locations/{a}/paste",
                     data={"text": "2 Sol Ring (C21) 263\nLightning Bolt\n3 Black Lotus\n"},
                     follow_redirects=True)
@@ -188,7 +190,7 @@ def test_location_bulk_move_paste_and_sort(client, conn):
 
 
 def test_collection_sort_and_deck_groups(client, conn):
-    loc = locations.create(conn, "Binder A", "binder")
+    loc = locations.create(conn, "Binder A", "binder", owner=ALICE)
     ledger.acquire(conn, loc, StockKey(SOL_C21), 1)
     ledger.acquire(conn, loc, StockKey(BOLT), 5)
     page = client.get("/collection?sort=-qty").data
@@ -204,9 +206,9 @@ def test_collection_sort_and_deck_groups(client, conn):
 
 
 def test_view_switch_text_and_images(client, conn):
-    loc = locations.create(conn, "Binder A", "binder")
+    loc = locations.create(conn, "Binder A", "binder", owner=ALICE)
     ledger.acquire(conn, loc, StockKey(SOL_C21), 3)
-    locations.create(conn, "Box B", "box")
+    locations.create(conn, "Box B", "box", owner=ALICE)
     client.post("/import/deck", data={"text": "2 Sol Ring (C21) 263\n1 Lightning Bolt", "name": "D", "format": ""})
     deck_id = conn.execute("SELECT id FROM decks").fetchone()[0]
     page = client.get(f"/locations/{loc}").data

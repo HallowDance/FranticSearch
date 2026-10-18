@@ -27,9 +27,20 @@
 </table>
 {% else %}<p class="muted">You don't own any copies.</p>{% endif %}
 
+{% if others %}
+<h2>Shared by others</h2>
+<table class="grid">
+<tr><th>User</th><th>Location</th><th>Printing</th><th>Qty</th></tr>
+{% for s in others %}
+<tr><td>{{ s.owner_name }}</td><td><a href="{{ url_for('location_view', location_id=s.location_id) }}">{{ s.location_name }}</a> <span class="muted">({{ s.location_type }})</span></td>
+<td>{{ m.card_link(url_for('card', card_key=card_key, printing=s.printing_id), s.set_code|upper ~ ' #' ~ s.collector_number, s.image) }} {{ m.key_tags(s) }}</td><td class="num">{{ s.qty }}</td></tr>
+{% endfor %}
+</table>
+{% endif %}
+
 <h2 id="add">Add copies</h2>
 {% if locs %}
-<form method="post" action="{{ url_for('stock_acquire') }}">
+<form method="post" action="{{ url_for('stock_acquire') }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
 <input type="hidden" name="next" value="{{ url_for('card', card_key=card_key) }}">
 <table class="kv">
 <tr><th>Printing</th><td><select name="printing_id">

@@ -2,7 +2,7 @@ import io
 import json
 
 import pytest
-from conftest import BOLT, DELVER, SOL_C21, SOL_CMM, SOL_ORACLE
+from conftest import ALICE, BOLT, DELVER, SOL_C21, SOL_CMM, SOL_ORACLE
 
 from franticsearch import decks, importer, ledger, locations, scryfall
 from franticsearch.importer import ImportFailed, Line
@@ -137,16 +137,16 @@ def test_default_printing_is_newest_released_paper(conn, more_sols):
 
 
 def test_default_printing_prefers_free_owned_copy(conn, more_sols):
-    binder = locations.create(conn, "Binder", "binder")
+    binder = locations.create(conn, "Binder", "binder", owner=ALICE)
     ledger.acquire(conn, binder, StockKey(SOL_C21, condition="LP"), 1)
-    key, _ = importer.resolve(conn, Line(1, "", name="Sol Ring"), allow_default=True)
+    key, _ = importer.resolve(conn, Line(1, "", name="Sol Ring"), allow_default=True, owner=ALICE)
     assert key == StockKey(SOL_C21, condition="LP")
 
 
 # --------------------------------------------------------------------------- collection import
 
 def test_import_collection(conn):
-    loc = locations.create(conn, "Unsorted", "box")
+    loc = locations.create(conn, "Unsorted", "box", owner=ALICE)
     data = _csv(
         '"2","0","Sol Ring","cmm","Near Mint","English","foil","","","410","False","False",""\n',
         '"1","0","Sol Ring","cmm","Near Mint","English","foil","","","410","False","False",""\n',
@@ -178,7 +178,7 @@ def test_import_collection(conn):
 
 
 def test_collection_import_refuses_deck_locations(conn):
-    iid = importer.import_deck(conn, "1 Sol Ring", "Deck A")
+    iid = importer.import_deck(conn, "1 Sol Ring", "Deck A", owner=ALICE)
     deck_loc = decks.get(conn, importer.get_import(conn, iid)["deck_id"])["location_id"]
     with pytest.raises(ImportFailed, match="binder or box"):
         importer.import_collection(conn, _csv(), deck_loc)
@@ -188,7 +188,7 @@ def test_collection_import_refuses_deck_locations(conn):
 
 def test_import_deck_creates_deck_location_and_slots(conn):
     text = "1 Sol Ring (C21) 263\n1 Sol Ring (C21) 263\n2 Lightning Bolt\n1 Black Lotus\n\n1 Delver of Secrets"
-    iid = importer.import_deck(conn, text, "Delver Tribal", "commander", filename="d.txt")
+    iid = importer.import_deck(conn, text, "Delver Tribal", "commander", filename="d.txt", owner=ALICE)
     imp = importer.get_import(conn, iid)
     assert (imp["lines"], imp["imported"], imp["open"]) == (5, 5, 1)
     deck = decks.get(conn, imp["deck_id"])
@@ -203,36 +203,36 @@ def test_import_deck_creates_deck_location_and_slots(conn):
     importer.fix(conn, u["id"], StockKey(SOL_CMM, "etched"))
     assert any(s["printing_id"] == SOL_CMM and s["finish"] == "etched"
                for s in decks.slots(conn, deck["id"]))
-    assert decks.list_all(conn)[0]["unresolved"] == 0
+    assert decks.list_all(conn, ALICE)[0]["unresolved"] == 0
 
 
 def test_commander_format_takes_first_line_as_commander(conn):
     iid = importer.import_deck(conn, "1 Delver of Secrets (ISD) 51 *F*\n1 Sol Ring (C21) 263", "A",
-                               "commander")
+                               "commander", owner=ALICE)
     deck_id = importer.get_import(conn, iid)["deck_id"]
     assert decks.commander_names(conn, deck_id) == ["Delver of Secrets // Insectile Aberration"]
-    iid = importer.import_deck(conn, "1 Delver of Secrets (ISD) 51\n1 Sol Ring (C21) 263", "B", "modern")
+    iid = importer.import_deck(conn, "1 Delver of Secrets (ISD) 51\n1 Sol Ring (C21) 263", "B", "modern", owner=ALICE)
     assert decks.commander_names(conn, importer.get_import(conn, iid)["deck_id"]) == []
 
 
 def test_deck_import_duplicates_and_delete(conn):
     text = "1 Sol Ring\n"
-    iid = importer.import_deck(conn, text, "A")
+    iid = importer.import_deck(conn, text, "A", owner=ALICE)
     with pytest.raises(ImportFailed, match="already imported"):
-        importer.import_deck(conn, text + "\r\n", "B")  # same list, other line endings
-    with pytest.raises(ledger.LedgerError, match="already exists"):
-        importer.import_deck(conn, "1 Island", "a")
+        importer.import_deck(conn, text + "\r\n", "B", owner=ALICE)  # same list, other line endings
+    with pytest.raises(ledger.LedgerError, match="already have a location or deck"):
+        importer.import_deck(conn, "1 Island", "a", owner=ALICE)
     assert conn.execute("SELECT COUNT(*) FROM decks").fetchone()[0] == 1  # failed import left nothing
 
     decks.delete(conn, importer.get_import(conn, iid)["deck_id"])
     assert conn.execute("SELECT COUNT(*) FROM locations").fetchone()[0] == 0
-    importer.import_deck(conn, text, "A")  # deleting the deck allows importing it again
+    importer.import_deck(conn, text, "A", owner=ALICE)  # deleting the deck allows importing it again
 
 
 def test_deck_with_moved_cards_cannot_be_deleted(conn):
-    iid = importer.import_deck(conn, "1 Sol Ring (C21) 263", "A")
+    iid = importer.import_deck(conn, "1 Sol Ring (C21) 263", "A", owner=ALICE)
     deck = decks.get(conn, importer.get_import(conn, iid)["deck_id"])
-    binder = locations.create(conn, "Binder", "binder")
+    binder = locations.create(conn, "Binder", "binder", owner=ALICE)
     ledger.acquire(conn, binder, StockKey(SOL_C21), 1)
     ledger.move(conn, binder, deck["location_id"], StockKey(SOL_C21), 1)
     (slot,) = decks.slots(conn, deck["id"])

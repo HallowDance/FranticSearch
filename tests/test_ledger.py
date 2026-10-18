@@ -1,5 +1,5 @@
 import pytest
-from conftest import BOLT, SOL_C21, SOL_CMM
+from conftest import ALICE, BOLT, SOL_C21, SOL_CMM
 
 from franticsearch import ledger, locations
 from franticsearch.ledger import LedgerError, StockKey
@@ -8,8 +8,8 @@ from franticsearch.ledger import LedgerError, StockKey
 @pytest.fixture
 def locs(conn):
     return {
-        "binder": locations.create(conn, "Binder A", "binder"),
-        "box": locations.create(conn, "Bulk box", "box"),
+        "binder": locations.create(conn, "Binder A", "binder", owner=ALICE),
+        "box": locations.create(conn, "Bulk box", "box", owner=ALICE),
     }
 
 
@@ -75,7 +75,8 @@ def test_cannot_take_more_than_present(conn, locs):
 
 
 def test_moves_into_and_out_of_decks_are_pulls_and_returns(conn, locs):
-    deck = conn.execute("INSERT INTO locations(name, type) VALUES ('Deck: Atraxa', 'deck')").lastrowid
+    deck = conn.execute("INSERT INTO locations(owner_id, name, type) VALUES (?, 'Deck: Atraxa', 'deck')",
+                        (ALICE,)).lastrowid
     ledger.acquire(conn, locs["binder"], StockKey(BOLT), 2)
     ledger.move(conn, locs["binder"], deck, StockKey(BOLT), 1)
     ledger.move(conn, deck, locs["box"], StockKey(BOLT), 1)
@@ -105,10 +106,10 @@ def test_schema_rejects_inconsistent_movements(conn, locs):
 
 
 def test_locations_crud(conn, locs):
-    with pytest.raises(LedgerError, match="already exists"):
-        locations.create(conn, "binder a", "binder")
+    with pytest.raises(LedgerError, match="already have a location"):
+        locations.create(conn, "binder a", "binder", owner=ALICE)
     with pytest.raises(LedgerError, match="type must be"):
-        locations.create(conn, "X", "deck")
+        locations.create(conn, "X", "deck", owner=ALICE)
     locations.update(conn, locs["box"], "Bulk box 1", "box", "under the bed")
     assert locations.get(conn, locs["box"])["notes"] == "under the bed"
     ledger.acquire(conn, locs["box"], StockKey(BOLT), 1)
@@ -125,8 +126,8 @@ def test_archive_locations(conn, locs):
         locations.set_archived(conn, locs["box"], True)
     ledger.move(conn, locs["box"], locs["binder"], StockKey(BOLT), 1)
     locations.set_archived(conn, locs["box"], True)
-    assert [l["id"] for l in locations.list_all(conn)] == [locs["binder"]]
-    assert [l["id"] for l in locations.list_all(conn, archived=True)] == [locs["box"]]
+    assert [l["id"] for l in locations.list_all(conn, ALICE)] == [locs["binder"]]
+    assert [l["id"] for l in locations.list_all(conn, ALICE, archived=True)] == [locs["box"]]
     with pytest.raises(LedgerError, match="archived"):
         ledger.move(conn, locs["binder"], locs["box"], StockKey(BOLT), 1)
     with pytest.raises(LedgerError, match="archived"):
@@ -138,8 +139,8 @@ def test_archive_locations(conn, locs):
 
 def test_move_many_is_one_batch_and_undo_reverses_it(conn):
     from franticsearch import locations
-    a = locations.create(conn, "A", "binder")
-    b = locations.create(conn, "B", "box")
+    a = locations.create(conn, "A", "binder", owner=ALICE)
+    b = locations.create(conn, "B", "box", owner=ALICE)
     ledger.acquire(conn, a, StockKey(SOL_C21), 2)
     ledger.acquire(conn, a, StockKey(BOLT), 3)
     batch = ledger.move_many(conn, a, b, [(StockKey(SOL_C21), 2), (StockKey(BOLT), 1)])
@@ -158,8 +159,8 @@ def test_move_many_is_one_batch_and_undo_reverses_it(conn):
 
 def test_undo_rules(conn):
     from franticsearch import locations
-    a = locations.create(conn, "A", "binder")
-    b = locations.create(conn, "B", "box")
+    a = locations.create(conn, "A", "binder", owner=ALICE)
+    b = locations.create(conn, "B", "box", owner=ALICE)
     added = ledger.acquire(conn, a, StockKey(SOL_C21), 1)
     sold = ledger.sell(conn, a, StockKey(SOL_C21), 1)
     ledger.undo(conn, sold)                                 # back from outside: an adjust

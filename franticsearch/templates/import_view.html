@@ -20,7 +20,7 @@
 <tr><td class="num">{{ u.line_no }}</td><td class="num">{{ u.qty }}</td>
 <td class="mono">{{ u.raw }}</td><td>{{ u.problem }}</td><td>{{ u.status }}</td>
 <td>{% if u.status == 'open' %}<a href="{{ url_for('import_fix', uid=u.id) }}">Fix&hellip;</a>
-<form class="inline" method="post" action="{{ url_for('import_dismiss', uid=u.id) }}"><button title="Don't import this line">Dismiss</button></form>{% endif %}</td></tr>
+<form class="inline" method="post" action="{{ url_for('import_dismiss', uid=u.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><button title="Don't import this line">Dismiss</button></form>{% endif %}</td></tr>
 {% endfor %}
 </table>
 {% else %}<p class="muted">Every line was matched.</p>{% endif %}

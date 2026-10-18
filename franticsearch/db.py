@@ -68,13 +68,22 @@ def migrate(conn: sqlite3.Connection) -> list[str]:
     for version, name, sql in _migrations():
         if version <= current:
             continue
-        # executescript() commits implicitly, so wrap the script in its own transaction.
+        # Foreign keys are off while a migration runs so tables can be rebuilt
+        # (SQLite's documented ALTER procedure); they're checked before COMMIT.
+        conn.execute("PRAGMA foreign_keys = OFF")
         try:
-            conn.executescript(f"BEGIN;\n{sql}\nPRAGMA user_version = {version};\nCOMMIT;")
+            # executescript() commits implicitly, so wrap the script in its own transaction.
+            conn.executescript(f"BEGIN;\n{sql}\nPRAGMA user_version = {version};")
+            broken = conn.execute("PRAGMA foreign_key_check").fetchall()
+            if broken:
+                raise sqlite3.IntegrityError(f"{name} breaks foreign keys: {[tuple(r) for r in broken[:5]]}")
+            conn.execute("COMMIT")
         except sqlite3.Error:
             if conn.in_transaction:
                 conn.execute("ROLLBACK")
             raise
+        finally:
+            conn.execute("PRAGMA foreign_keys = ON")
         applied.append(name)
     return applied
 

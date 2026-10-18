@@ -1,0 +1,15 @@
+{% extends "base.html" %}{% block title %}People{% endblock %}
+{% block body %}
+<h1>People</h1>
+<p class="muted">Locations and decks other users have shared. Share your own from a location's or deck's page.</p>
+{% if shared %}
+<table class="grid">
+<tr><th>User</th><th>Shared</th><th>Type</th><th>Copies</th></tr>
+{% for l in shared %}
+<tr><td>{{ l.owner_name }}</td>
+<td>{% if l.deck_id %}<a href="{{ url_for('deck_view', deck_id=l.deck_id) }}">{{ l.name }}</a>{% else %}<a href="{{ url_for('location_view', location_id=l.id) }}">{{ l.name }}</a>{% endif %}</td>
+<td>{{ l.type }}</td><td class="num">{{ l.cards }}</td></tr>
+{% endfor %}
+</table>
+{% else %}<p>Nobody has shared anything yet.</p>{% endif %}
+{% endblock %}
