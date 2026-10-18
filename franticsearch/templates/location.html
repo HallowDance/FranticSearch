@@ -8,9 +8,10 @@
 <h2>Contents</h2>
 {% set sort = request.args.get('sort', 'name') %}
 {% set manual = loc.type != 'deck' %}
+{% if all_lines %}{{ m.stock_filter(f, facets, stock|length, all_lines) }}{% endif %}
 {% if stock %}
-<p class="muted">{{ stock|sum(attribute='qty') }} copies, {{ stock|length }} line{{ '' if stock|length == 1 else 's' }}.
-{% if manual and view == 'text' %}<a href="{{ url_for('location_view', location_id=loc.id, sort=sort, all='' if tick_all else '1') }}">{{ 'untick all' if tick_all else 'tick all' }}</a>{% endif %}</p>
+<p class="muted">{% if f.active() %}{{ stock|sum(attribute='qty') }} of {{ all_copies }} copies match.{% else %}{{ all_copies }} copies, {{ all_lines }} line{{ '' if all_lines == 1 else 's' }}.{% endif %}
+{% if manual and view == 'text' %}{% set targs = request.args.to_dict() %}{% set _ = targs.update(all='' if tick_all else '1') %}<a href="{{ url_for('location_view', location_id=loc.id, **targs) }}">{{ 'untick all' if tick_all else 'tick all' }}</a>{% endif %}</p>
 {{ m.view_switch() }}
 {% if view == 'images' %}
 <div class="cardgrid">{% for s in stock %}{{ m.card_tile(url_for('card', card_key=s.card_key, printing=s.printing_id), s.name, s.image, s.qty, s.set_code|upper ~ ' #' ~ s.collector_number ~ ('' if s.finish == 'nonfoil' else ' ' ~ s.finish)) }}{% endfor %}</div>
@@ -32,12 +33,13 @@
 {% if manual %}
 {% set dests = locs|rejectattr('id', 'equalto', loc.id)|list %}
 <form id="bulk" method="post" action="{{ url_for('location_move_selected', location_id=loc.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
-<input type="hidden" name="next" value="{{ url_for('location_view', location_id=loc.id, sort=sort) }}">
+<input type="hidden" name="next" value="{{ request.script_root ~ request.full_path }}">
 {% if dests %}Move all copies of the ticked lines to <select name="to_id" aria-label="move ticked to">{% for l in dests %}<option value="{{ l.id }}">{{ l.name }}</option>{% endfor %}</select> <button>Move ticked</button>
 {% else %}<span class="muted">Create another location to move cards in bulk.</span>{% endif %}
 </form>
 {% endif %}
 {% endif %}
+{% elif all_lines %}<p>No cards match the filter.</p>
 {% else %}<p class="muted">Empty.</p>{% endif %}
 
 {% if manual and not loc.archived %}

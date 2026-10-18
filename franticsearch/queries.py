@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import re
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
+
+from . import cardtypes
 
 PAGE_SIZE = 100
 
@@ -164,13 +167,86 @@ def card_stock(conn: sqlite3.Connection, card_key: str, owner: int) -> list[sqli
 
 def location_stock(conn: sqlite3.Connection, location_id: int, sort: str = "name") -> list[sqlite3.Row]:
     return conn.execute(
-        f"""SELECT s.*, p.name, p.set_code, p.collector_number, p.type_line, p.image_normal AS image,
-                   p.mana_cost, p.cmc, COALESCE(p.oracle_id, p.scryfall_id) AS card_key
+        f"""SELECT s.*, p.name, p.set_code, p.set_name, p.collector_number, p.type_line,
+                   p.image_normal AS image, p.mana_cost, p.cmc, p.colors,
+                   COALESCE(p.oracle_id, p.scryfall_id) AS card_key
               FROM stock s JOIN printings p ON p.scryfall_id = s.printing_id
              WHERE s.location_id = ?
              ORDER BY {order_by(LOCATION_SORTS, sort)}""",
         (location_id,),
     ).fetchall()
+
+
+COLORS = {"W": "White", "U": "Blue", "B": "Black", "R": "Red", "G": "Green",
+          "C": "Colourless", "M": "Multicolour"}
+MANA_VALUES = ("0", "1", "2", "3", "4", "5", "6", "7+")
+
+
+@dataclass
+class StockFilter:
+    """Filters for a location's card list (applied in Python: a location is small)."""
+    q: str = ""          # name contains
+    type: str = ""       # card type or supertype (Creature, Legendary, ...)
+    subtype: str = ""    # Elf, Equipment, Time Lord, ...
+    color: str = ""      # W U B R G, C = colourless, M = multicolour
+    mv: str = ""         # "0".."6", "7+"
+    set: str = ""        # set code
+    finish: str = ""
+    min_qty: int = 0
+
+    @classmethod
+    def from_args(cls, args) -> "StockFilter":
+        f = cls(**{fl.name: (args.get(fl.name) or "").strip() for fl in fields(cls) if fl.name != "min_qty"})
+        try:
+            f.min_qty = max(0, int(args.get("min_qty") or 0))
+        except ValueError:
+            f.min_qty = 0
+        return f
+
+    def active(self) -> bool:
+        return any((self.q, self.type, self.subtype, self.color, self.mv, self.set, self.finish,
+                    self.min_qty > 1))
+
+    def matches(self, row) -> bool:
+        if self.q and self.q.lower() not in row["name"].lower():
+            return False
+        if self.type or self.subtype:
+            supers, types, subs = cardtypes.parse(row["type_line"])
+            if self.type and self.type not in supers | types:
+                return False
+            if self.subtype and self.subtype not in subs:
+                return False
+        if self.color:
+            colors = json.loads(row["colors"] or "[]")
+            if self.color == "C" and colors or self.color == "M" and len(colors) < 2:
+                return False
+            if self.color in "WUBRG" and self.color not in colors:
+                return False
+        if self.mv:
+            mv = int(row["cmc"] or 0)
+            if (self.mv == "7+" and mv < 7) or (self.mv != "7+" and str(mv) != self.mv):
+                return False
+        if self.set and row["set_code"] != self.set.lower():
+            return False
+        if self.finish and row["finish"] != self.finish:
+            return False
+        return row["qty"] >= self.min_qty
+
+
+def stock_facets(rows) -> dict:
+    """Choices for the filter dropdowns: only what occurs in ``rows``."""
+    supers, types, subs, sets, finishes = set(), set(), set(), {}, set()
+    for r in rows:
+        sp, ty, sb = cardtypes.parse(r["type_line"])
+        supers |= sp
+        types |= ty
+        subs |= sb
+        sets[r["set_code"]] = r["set_name"]
+        finishes.add(r["finish"])
+    return {
+        "types": sorted(types), "supertypes": sorted(supers), "subtypes": sorted(subs),
+        "sets": sorted(sets.items(), key=lambda kv: kv[1].lower()), "finishes": sorted(finishes),
+    }
 
 
 def search_cards(conn: sqlite3.Connection, text: str, limit: int = 30) -> list[sqlite3.Row]:

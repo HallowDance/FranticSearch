@@ -89,6 +89,11 @@ Decided (2026-10-18, UI improvements, pulled forward from phase 6):
 - **Nav search** box on every page: jumps to the card on an exact (full or front-face) name match, preferring real cards over art-series cards; else shows the result list.
 - **Sortable columns** via `?sort=key` / `-key` on the collection, location and deck tables (whitelisted server-side).
 - **Deck page**: main deck grouped by type (first match of Creature, Planeswalker, Battle, Land, Instant, Sorcery, Artifact, Enchantment on the front face), shown Creatures → … → Lands; text mana curve over non-land main + commander cards.
+- **Location filters** (2026-10-18): on a location's page and its shared view.
+  - Fields: name contains; type (card types + supertypes like Legendary); subtype; colour (W/U/B/R/G, colourless, multicolour); mana value (0–6, 7+); set; finish; qty ≥ N.
+  - Dropdowns list only what occurs in that location. All faces of multi-face cards count.
+  - Filters combine with sorting and the image view. "Tick all" ticks only the rows shown.
+  - Done in Python over the location's rows (`queries.StockFilter`, `cardtypes.parse`). The collection and deck pages can reuse it.
 - **Text | Images view** on the collection, location, deck and Add pages: a grid of card images (lazy-loaded, with a copy-count badge; the deck keeps its type groups). The choice is remembered in the session for all card lists. Row actions (move, recount, remove, quick add, tick boxes) live in the text view only.
 - **Mana symbols** rendered as Scryfall's SVGs (hotlinked, like card images) in costs and oracle text; alt text keeps `{W}` for copy/paste.
 
@@ -146,8 +151,8 @@ Domain logic (`ledger.py`, later pull/return planning and import parsing) is fra
 | # | Phase | Deliverables | Status |
 |---|---|---|---|
 | 1 | Foundation | Repo scaffold, Docker, schema + migrations, Scryfall sync, locations CRUD, stock + ledger with invariant check, collection browser, manual add/move/adjust | **Shipped** (PR #1). `docker compose up --build` itself not yet verified |
-| 2 | Import | Moxfield collection CSV, deck text import, unresolved queue | **Shipped** (PR #2). Collection CSV not yet tested with a real Moxfield export |
-| 2b | Users & sharing | Accounts (admin-created), login + CSRF, per-user collections, ownership checks on every route, location visibility (private / users / link), People page, others' copies on card pages | **Shipped** (branch `phase-2b`) |
+| 2 | Import | Moxfield collection CSV, deck text import, unresolved queue | **Shipped** (PR #2). Collection CSV verified with a real Moxfield export on 2026-10-18 (337 rows, 0 unresolved) |
+| 2b | Users & sharing | Accounts (admin-created), login + CSRF, per-user collections, ownership checks on every route, location visibility (private / users / link), People page, others' copies on card pages | **Shipped** (PR #6) |
 | 3 | Card search | Local search over `printings` (name/type/text/colors/MV/set/legality), ownership-aware results | Next. Name search, nav search and quick add exist already |
 | 4 | Decks | Deck editor (slots, boards, proxies, printing switch), live stats + legality, derived deck state, pull list, return list, "mark as built" | Partly: read-only deck page with type groups, mana curve, in-deck/free counts (PR #2, #4) |
 | 5 | Shortfalls | Proxies, cross-deck buy list, exports | Not started |

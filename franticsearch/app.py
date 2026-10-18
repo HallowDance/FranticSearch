@@ -106,6 +106,8 @@ def create_app(config: dict | None = None) -> Flask:
             "csrf_token": _csrf_token,
             "VISIBILITIES": locations.VISIBILITIES,
             "VISIBILITY_NAMES": locations.VISIBILITY_NAMES,
+            "COLORS": queries.COLORS,
+            "MANA_VALUES": queries.MANA_VALUES,
         }
 
     @app.template_filter("fromjson")
@@ -253,6 +255,14 @@ def _deck_context(deck: sqlite3.Row) -> dict:
                 for b in ("commander", "side", "maybe")},
         curve=decks.mana_curve(boards["main"] + boards["commander"]),
     )
+
+
+def _filtered_stock(location_id: int) -> dict:
+    """A location's stock, sorted and filtered by the request args, plus filter choices."""
+    rows = queries.location_stock(g.db, location_id, request.args.get("sort", "name"))
+    f = queries.StockFilter.from_args(request.args)
+    return dict(stock=[r for r in rows if f.matches(r)], all_lines=len(rows),
+                all_copies=sum(r["qty"] for r in rows), f=f, facets=queries.stock_facets(rows))
 
 
 def _admin_only() -> None:
@@ -483,8 +493,7 @@ def _register_routes(app: Flask) -> None:
         # lines a paste couldn't match: shown (prefilled) once, on this location's page
         paste = session.pop("paste") if (session.get("paste") or {}).get("loc") == location_id else None
         return render_template(
-            "location.html", loc=loc,
-            stock=queries.location_stock(conn, location_id, request.args.get("sort", "name")),
+            "location.html", loc=loc, **_filtered_stock(location_id),
             deck=decks.by_location(conn, location_id), tick_all=request.args.get("all") == "1",
             paste=paste,
             locs=_manual_locations(conn), has_history=locations.has_history(conn, location_id),
@@ -713,8 +722,7 @@ def _register_routes(app: Flask) -> None:
             return render_template("deck.html", **_deck_context(deck), loc=loc, readonly=True,
                                    owner=owner, anonymous=anonymous)
         return render_template(
-            "shared.html", loc=loc, owner=owner, anonymous=anonymous,
-            stock=queries.location_stock(conn, loc["id"], request.args.get("sort", "name")),
+            "shared.html", loc=loc, owner=owner, anonymous=anonymous, **_filtered_stock(loc["id"]),
         )
 
     @app.get("/s/<token>")
