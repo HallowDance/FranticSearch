@@ -48,9 +48,9 @@ class Line:
 
 # --------------------------------------------------------------------------- deck text
 
-# "1 Sol Ring", "1x Sol Ring (C21) 263", "1 Sol Ring (C21) 263 *F*"
+# "1 Sol Ring", "1x Sol Ring (C21) 263", "1 Sol Ring (C21) 263 *F*", "Sol Ring" (= 1)
 _DECK_LINE = re.compile(
-    r"^(?P<qty>\d+)x?\s+(?P<name>.+?)"
+    r"^(?:(?P<qty>\d+)x?\s+)?(?P<name>.+?)"
     r"(?:\s+\((?P<set>[A-Za-z0-9]+)\)(?:\s+(?P<cn>[^\s*]+))?)?"
     r"(?:\s+\*(?P<flag>[FE])\*)?\s*$"
 )
@@ -97,7 +97,7 @@ def parse_deck_text(
         seen_card = True
         flag = m["flag"]
         lines.append(Line(
-            no, s, qty=int(m["qty"]), name=m["name"].strip(),
+            no, s, qty=int(m["qty"] or 1), name=m["name"].strip(),
             set_code=(m["set"] or "").lower(), collector_number=m["cn"] or "",
             finish={"F": "foil", "E": "etched"}.get(flag) if flag else None,
             board=board,
@@ -402,6 +402,34 @@ def import_deck(
 
 def _note(import_id: int, filename: str) -> str:
     return f"import #{import_id}" + (f" ({filename})" if filename else "")
+
+
+def paste_into(
+    conn: sqlite3.Connection, location_id: int, text: str
+) -> tuple[str | None, int, list[tuple[str, str]]]:
+    """Add a pasted card list ("1 Sol Ring (C21) 263 *F*" / "2 Island") to a location.
+
+    Quick entry, not a file import: no hash, no queue. Lines without a set get the
+    default printing. Returns (batch id or None, copies added, [(line, problem)]).
+    """
+    loc = conn.execute("SELECT type FROM locations WHERE id = ?", (location_id,)).fetchone()
+    if loc is None:
+        raise LedgerError("unknown location")
+    if loc["type"] == "deck":
+        raise LedgerError("deck locations are filled from the deck, not by pasting")
+    resolved: dict[StockKey, int] = {}
+    left = []
+    for line in parse_deck_text(text):
+        key, problem = resolve(conn, line, allow_default=True)
+        if key:
+            resolved[key] = resolved.get(key, 0) + line.qty
+        else:
+            left.append((line.raw, problem))
+    batch = None
+    if resolved:
+        batch = ledger.acquire_many(conn, location_id, resolved.items(), note="pasted list",
+                                    reason="acquire")
+    return batch, sum(resolved.values()), left
 
 
 # --------------------------------------------------------------------------- queue

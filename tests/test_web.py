@@ -1,4 +1,4 @@
-from conftest import SOL_C21, SOL_CMM, SOL_ORACLE
+from conftest import BOLT, SOL_C21, SOL_CMM, SOL_ORACLE
 
 from franticsearch import ledger, locations
 from franticsearch.ledger import StockKey
@@ -137,3 +137,89 @@ def test_behind_proxy_under_a_path_prefix(conn, db_path):
     from franticsearch.app import create_app as plain
     p = plain({"DATABASE": db_path, "AUTO_SYNC": False, "TESTING": True}).test_client()
     assert b"/franticsearch/" not in p.get("/locations", headers=h).data
+
+
+def test_mana_symbols_are_escaped_images():
+    from franticsearch.app import mana_symbols
+    html = str(mana_symbols("{2}{W/U}{T}: <b>x</b> {½}"))
+    assert 'card-symbols/2.svg' in html and 'card-symbols/WU.svg' in html and 'card-symbols/T.svg' in html
+    assert 'card-symbols/HALF.svg' in html and "&lt;b&gt;" in html and "<b>" not in html
+    assert str(mana_symbols(None)) == ""
+
+
+def test_quick_add_nav_search_and_undo(client, conn):
+    loc = locations.create(conn, "Binder A", "binder")
+    page = client.get("/add?q=sol").data
+    assert b"Quick add" in page and b"card-symbols/1.svg" in page
+    r = client.post("/stock/quick-add", data={"card_key": SOL_ORACLE, "qty": "2", "location_id": loc,
+                                               "next": "/add?q=sol"}, follow_redirects=True)
+    assert b"Added 2\xc3\x97 Sol Ring (CMM #410) to Binder A." in r.data   # newest paper printing
+    assert b"Undo that" in r.data
+    assert ledger.qty_at(conn, loc, StockKey(SOL_CMM)) == 2
+    # the location is remembered for the next quick add
+    assert f'value="{loc}" selected'.encode() in client.get("/add?q=bolt").data
+    batch = conn.execute("SELECT batch_id FROM movements").fetchone()[0]
+    r = client.post("/undo", data={"batch": batch, "next": "/history"}, follow_redirects=True)
+    assert b"Undone." in r.data and b"undone" in r.data
+    assert ledger.qty_at(conn, loc, StockKey(SOL_CMM)) == 0
+    # nav search jumps straight to a single match, else lists results
+    assert client.get("/add?q=lightning&go=1").headers["Location"].startswith("/card/")
+    assert client.get("/add?q=zzz&go=1").status_code == 200
+    assert client.get("/add?q=delver of secrets&go=1").status_code == 302   # exact front-face name
+
+
+def test_location_bulk_move_paste_and_sort(client, conn):
+    a = locations.create(conn, "Binder A", "binder")
+    b = locations.create(conn, "Box B", "box")
+    r = client.post(f"/locations/{a}/paste",
+                    data={"text": "2 Sol Ring (C21) 263\nLightning Bolt\n3 Black Lotus\n"},
+                    follow_redirects=True)
+    assert b"Added 3 copies." in r.data and b"1 line(s) didn&#39;t match" in r.data
+    assert b"3 Black Lotus</textarea>" in r.data                    # leftovers prefilled once
+    assert b"3 Black Lotus</textarea>" not in client.get(f"/locations/{a}").data
+    page = client.get(f"/locations/{a}?sort=-qty").data
+    assert page.index(b"Sol Ring") < page.index(b"Lightning Bolt") and b"&#9660;" in page
+    assert page.count(b"checked") == 0 and client.get(f"/locations/{a}?all=1").data.count(b" checked") == 2
+    rows = [f"{SOL_C21}|nonfoil|NM|en", f"{BOLT}|nonfoil|NM|en"]
+    r = client.post(f"/locations/{a}/move-selected", data={"row": rows, "to_id": b}, follow_redirects=True)
+    assert b"Moved 3 copies (2 lines) to Box B." in r.data
+    assert ledger.qty_at(conn, b, StockKey(SOL_C21)) == 2 and ledger.qty_at(conn, a, StockKey(BOLT)) == 0
+    assert ledger.check(conn) == []
+
+
+def test_collection_sort_and_deck_groups(client, conn):
+    loc = locations.create(conn, "Binder A", "binder")
+    ledger.acquire(conn, loc, StockKey(SOL_C21), 1)
+    ledger.acquire(conn, loc, StockKey(BOLT), 5)
+    page = client.get("/collection?sort=-qty").data
+    assert page.index(b"Lightning Bolt") < page.index(b"Sol Ring")
+    assert client.get("/collection?sort=bogus").status_code == 200       # falls back to name
+    client.post("/import/deck", data={"text": "1 Sol Ring\n4 Lightning Bolt\n1 Delver of Secrets",
+                                      "name": "D", "format": ""})
+    deck_id = conn.execute("SELECT id FROM decks").fetchone()[0]
+    page = client.get(f"/decks/{deck_id}").data
+    assert b"Main (6)" in page and b"Creatures (1)" in page and b"Instants (4)" in page
+    assert b"Artifacts (1)" in page and b"Mana curve" in page
+    assert page.index(b"Creatures (1)") < page.index(b"Instants (4)") < page.index(b"Artifacts (1)")
+
+
+def test_view_switch_text_and_images(client, conn):
+    loc = locations.create(conn, "Binder A", "binder")
+    ledger.acquire(conn, loc, StockKey(SOL_C21), 3)
+    locations.create(conn, "Box B", "box")
+    client.post("/import/deck", data={"text": "2 Sol Ring (C21) 263\n1 Lightning Bolt", "name": "D", "format": ""})
+    deck_id = conn.execute("SELECT id FROM decks").fetchone()[0]
+    page = client.get(f"/locations/{loc}").data
+    assert b"<b>[Text]</b>" in page and b'class="tile"' not in page and b"Move ticked" in page
+    page = client.get(f"/locations/{loc}?view=images").data
+    assert b"<b>[Images]</b>" in page and b'class="tile"' in page and b"Move ticked" not in page
+    assert b'<span class="qty">3</span>' in page and b"C21 #263" in page
+    # remembered for the session, on every card list
+    for url in ["/collection", "/add?q=sol", f"/decks/{deck_id}"]:
+        assert b'class="tile"' in client.get(url).data, url
+    assert b"Instants (1)</h3>" in client.get(f"/decks/{deck_id}").data
+    assert b"Quick add" not in client.get("/add?q=sol").data
+    client.get("/collection?view=text")
+    assert b'class="tile"' not in client.get(f"/decks/{deck_id}").data
+    client.get("/collection?view=bogus")                       # ignored
+    assert b"<b>[Text]</b>" in client.get("/collection").data

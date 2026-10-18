@@ -8,13 +8,23 @@ Name <input name="q" value="{{ q }}" size="32" autofocus> <button>Search</button
 </form>
 {% if q %}
 {% if results %}
-<p class="muted">Pick a card, then choose the exact printing, finish and location on its page.</p>
+{{ m.view_switch() }}
+{% if view == 'images' %}
+<p class="muted">Pick a card to choose its printing and add it. Switch to the text view for quick add.</p>
+<div class="cardgrid">{% for r in results %}{{ m.card_tile(url_for('card', card_key=r.card_key) ~ '#add', r.name, r.image) }}{% endfor %}</div>
+{% else %}
+<p class="muted">Quick add uses your free owned printing if you have one, else the newest regular paper printing. Open a card to choose the exact printing, finish, condition or language.</p>
 <table class="grid">
-<tr><th>Card</th><th>Cost</th><th>Type</th><th>Printings</th></tr>
+<tr><th>Card</th><th>Cost</th><th>Type</th><th>Printings</th>{% if locs %}<th>Quick add</th>{% endif %}</tr>
 {% for r in results %}
-<tr><td>{{ m.card_link(url_for('card', card_key=r.card_key) ~ '#add', r.name, r.image) }}</td><td class="mono">{{ r.mana_cost or '' }}</td><td>{{ r.type_line or '' }}</td><td class="num">{{ r.printings }}</td></tr>
+<tr><td>{{ m.card_link(url_for('card', card_key=r.card_key) ~ '#add', r.name, r.image) }}</td><td class="cost">{{ r.mana_cost|mana }}</td><td>{{ r.type_line or '' }}</td><td class="num">{{ r.printings }}</td>
+{% if locs %}<td><form class="inline" method="post" action="{{ url_for('stock_quick_add') }}">
+<input type="hidden" name="card_key" value="{{ r.card_key }}"><input type="hidden" name="next" value="{{ request.script_root ~ request.full_path }}">
+<input type="number" name="qty" value="1" min="1" aria-label="quantity"> &rarr; <select name="location_id" aria-label="location">{% for l in locs %}<option value="{{ l.id }}" {{ 'selected' if l.id == last_location }}>{{ l.name }}</option>{% endfor %}</select> <button>Add</button></form></td>{% endif %}</tr>
 {% endfor %}
 </table>
+{% endif %}
+{% if not locs %}<p class="muted">Create a <a href="{{ url_for('locations_list') }}">location</a> to enable quick add.</p>{% endif %}
 {% else %}<p>No card matches <b>{{ q }}</b>.</p>{% endif %}
 {% endif %}
 {% endblock %}

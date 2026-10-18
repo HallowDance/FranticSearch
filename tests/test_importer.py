@@ -70,9 +70,9 @@ def test_parse_moxfield_export_with_sets_lists_commander_first():
     assert {l.board for l in importer.parse_deck_text(headed, first_is_commander=True)} == {"main"}
 
 
-def test_parse_flags_unreadable_lines():
-    (line,) = importer.parse_deck_text("Sol Ring without a count")
-    assert line.problem == "unreadable line"
+def test_parse_line_without_count_means_one():
+    (line,) = importer.parse_deck_text("Sol Ring (C21) 263")
+    assert (line.qty, line.name, line.set_code, line.problem) == (1, "Sol Ring", "c21", "")
 
 
 # --------------------------------------------------------------------------- CSV parsing

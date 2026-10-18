@@ -6,20 +6,49 @@
 {% if loc.notes %}<p>{{ loc.notes }}</p>{% endif %}
 {% if deck %}<p>This is the location of deck <a href="{{ url_for('deck_view', deck_id=deck.id) }}">{{ deck.name }}</a>.</p>{% endif %}
 <h2>Contents</h2>
+{% set sort = request.args.get('sort', 'name') %}
+{% set manual = loc.type != 'deck' %}
 {% if stock %}
-<p class="muted">{{ stock|sum(attribute='qty') }} copies, {{ stock|length }} line{{ '' if stock|length == 1 else 's' }}.</p>
+<p class="muted">{{ stock|sum(attribute='qty') }} copies, {{ stock|length }} line{{ '' if stock|length == 1 else 's' }}.
+{% if manual and view == 'text' %}<a href="{{ url_for('location_view', location_id=loc.id, sort=sort, all='' if tick_all else '1') }}">{{ 'untick all' if tick_all else 'tick all' }}</a>{% endif %}</p>
+{{ m.view_switch() }}
+{% if view == 'images' %}
+<div class="cardgrid">{% for s in stock %}{{ m.card_tile(url_for('card', card_key=s.card_key, printing=s.printing_id), s.name, s.image, s.qty, s.set_code|upper ~ ' #' ~ s.collector_number ~ ('' if s.finish == 'nonfoil' else ' ' ~ s.finish)) }}{% endfor %}</div>
+{% if manual %}<p class="muted">Switch to the text view to move, recount or remove cards.</p>{% endif %}
+{% else %}
 <table class="grid">
-<tr><th>Card</th><th>Printing</th><th>Qty</th>{% if loc.type != 'deck' %}<th>Actions</th>{% endif %}</tr>
+<tr>{% if manual %}<th></th>{% endif %}{{ m.sort_th('Card', 'name', sort) }}{{ m.sort_th('Cost', 'cost', sort) }}{{ m.sort_th('Printing', 'set', sort) }}{{ m.sort_th('Qty', 'qty', sort) }}{% if manual %}<th>Actions</th>{% endif %}</tr>
 {% for s in stock %}
 <tr>
+{% if manual %}<td><input type="checkbox" form="bulk" name="row" value="{{ s.printing_id }}|{{ s.finish }}|{{ s.condition }}|{{ s.lang }}" {{ 'checked' if tick_all }} aria-label="tick {{ s.name }}"></td>{% endif %}
 <td>{{ m.card_link(url_for('card', card_key=s.card_key, printing=s.printing_id), s.name, s.image) }}</td>
+<td class="cost">{{ s.mana_cost|mana }}</td>
 <td>{{ s.set_code|upper }} #{{ s.collector_number }} {{ m.key_tags(s) }}</td>
 <td class="num">{{ s.qty }}</td>
-{% if loc.type != 'deck' %}<td>{{ m.stock_actions(s, locs) }}</td>{% endif %}
+{% if manual %}<td>{{ m.stock_actions(s, locs) }}</td>{% endif %}
 </tr>
 {% endfor %}
 </table>
+{% if manual %}
+{% set dests = locs|rejectattr('id', 'equalto', loc.id)|list %}
+<form id="bulk" method="post" action="{{ url_for('location_move_selected', location_id=loc.id) }}">
+<input type="hidden" name="next" value="{{ url_for('location_view', location_id=loc.id, sort=sort) }}">
+{% if dests %}Move all copies of the ticked lines to <select name="to_id" aria-label="move ticked to">{% for l in dests %}<option value="{{ l.id }}">{{ l.name }}</option>{% endfor %}</select> <button>Move ticked</button>
+{% else %}<span class="muted">Create another location to move cards in bulk.</span>{% endif %}
+</form>
+{% endif %}
+{% endif %}
 {% else %}<p class="muted">Empty.</p>{% endif %}
+
+{% if manual and not loc.archived %}
+<h2 id="paste">Add cards from a list</h2>
+<form method="post" action="{{ url_for('location_paste', location_id=loc.id) }}">
+{% if paste %}<div class="flash error">{% for p in paste.problems %}{{ p }}<br>{% endfor %}</div>{% endif %}
+<textarea name="text" rows="6" cols="50" placeholder="4 Lightning Bolt&#10;1 Sol Ring (C21) 263&#10;2 Arcane Signet (VOC) 159 *F*">{{ paste.text if paste }}</textarea><br>
+<button>Add to {{ loc.name }}</button>
+<span class="muted">one card per line, Moxfield style; lines without a set get your free owned printing, else the newest regular paper printing</span>
+</form>
+{% endif %}
 
 {% if loc.type != 'deck' %}
 <h2>Edit</h2>

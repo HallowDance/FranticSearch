@@ -134,3 +134,43 @@ def test_archive_locations(conn, locs):
     locations.set_archived(conn, locs["box"], False)
     ledger.move(conn, locs["binder"], locs["box"], StockKey(BOLT), 1)
     assert ledger.check(conn) == []
+
+
+def test_move_many_is_one_batch_and_undo_reverses_it(conn):
+    from franticsearch import locations
+    a = locations.create(conn, "A", "binder")
+    b = locations.create(conn, "B", "box")
+    ledger.acquire(conn, a, StockKey(SOL_C21), 2)
+    ledger.acquire(conn, a, StockKey(BOLT), 3)
+    batch = ledger.move_many(conn, a, b, [(StockKey(SOL_C21), 2), (StockKey(BOLT), 1)])
+    assert conn.execute("SELECT COUNT(DISTINCT batch_id) FROM movements WHERE batch_id = ?",
+                        (batch,)).fetchone()[0] == 1
+    assert ledger.qty_at(conn, b, StockKey(BOLT)) == 1
+    ledger.undo(conn, batch)
+    assert ledger.qty_at(conn, a, StockKey(SOL_C21)) == 2 and ledger.qty_at(conn, a, StockKey(BOLT)) == 3
+    assert ledger.qty_at(conn, b, StockKey(BOLT)) == 0
+    with pytest.raises(LedgerError, match="already undone"):
+        ledger.undo(conn, batch)
+    assert ledger.check(conn) == []
+    with pytest.raises(LedgerError, match="nothing selected"):
+        ledger.move_many(conn, a, b, [])
+
+
+def test_undo_rules(conn):
+    from franticsearch import locations
+    a = locations.create(conn, "A", "binder")
+    b = locations.create(conn, "B", "box")
+    added = ledger.acquire(conn, a, StockKey(SOL_C21), 1)
+    sold = ledger.sell(conn, a, StockKey(SOL_C21), 1)
+    ledger.undo(conn, sold)                                 # back from outside: an adjust
+    assert ledger.qty_at(conn, a, StockKey(SOL_C21)) == 1
+    undo_batch = conn.execute("SELECT batch_id FROM movements ORDER BY id DESC").fetchone()[0]
+    with pytest.raises(LedgerError, match="itself an undo"):
+        ledger.undo(conn, undo_batch)
+    ledger.move(conn, a, b, StockKey(SOL_C21), 1)
+    with pytest.raises(LedgerError, match="moved since"):     # the copy isn't in A any more
+        ledger.undo(conn, added)
+    imp = ledger.acquire_many(conn, a, [(StockKey(BOLT), 1)])
+    with pytest.raises(LedgerError, match="imports"):
+        ledger.undo(conn, imp)
+    assert ledger.check(conn) == []

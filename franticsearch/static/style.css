@@ -49,6 +49,26 @@ details summary { cursor: pointer; color: var(--link); }
 .oracle { white-space: pre-line; max-width: 46em; }
 .pager { margin: 6px 0; }
 .clear { clear: both; }
+/* Mana symbols (Scryfall SVGs) */
+img.sym { height: 1.05em; width: 1.05em; vertical-align: -0.15em; margin: 0 1px; }
+td.cost { white-space: nowrap; }
+a.sort { color: inherit; }
+tr.group th { background: #f6f4ea; font-style: italic; }
+table.curve td.bar { font-size: 10px; letter-spacing: -1px; color: var(--head); }
+form.navsearch { display: inline-block; margin: 0 0 0 8px; }
+form.flash.undo { display: block; }
+/* Image view: a wrapping grid of card tiles */
+p.viewswitch { margin: 2px 0 6px; }
+.cardgrid { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 10px; }
+a.tile { position: relative; width: 146px; text-align: center; text-decoration: none; font-size: 11px; }
+a.tile img, a.tile .noimg { display: block; width: 100%; aspect-ratio: 488 / 680; border-radius: 7px;
+  border: 1px solid var(--rule); box-sizing: border-box; }
+a.tile .noimg { background: #ece9d8; padding: 30% 6px 0; color: var(--ink); }
+a.tile .qty { position: absolute; top: 6px; left: 6px; background: rgba(0, 0, 0, .75); color: #fff;
+  font: bold 12px Verdana, sans-serif; padding: 0 5px; border-radius: 3px; }
+a.tile .cap { display: block; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+h3 { font: bold 13px Verdana, sans-serif; margin: 10px 0 4px; }
+@media (max-width: 640px) { a.tile { width: calc(33.3% - 6px); } }
 /* Card image on hover (no JS). Hidden images with loading=lazy are only fetched once shown. */
 a.cardlink { position: relative; }
 a.cardlink .peek { display: none; }

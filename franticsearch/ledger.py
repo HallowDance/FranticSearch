@@ -119,6 +119,7 @@ def _record(
     qty: int,
     reason: str,
     note: str,
+    undo_of: str | None = None,
 ) -> None:
     """Apply one movement. Caller must hold a transaction."""
     if qty <= 0:
@@ -136,8 +137,9 @@ def _record(
         _change(conn, to_id, key, qty)
     conn.execute(
         "INSERT INTO movements(batch_id, from_location_id, to_location_id, printing_id,"
-        " finish, condition, lang, qty, reason, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (batch_id, from_id, to_id, *key.as_tuple(), qty, reason, note),
+        " finish, condition, lang, qty, reason, note, undo_of)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (batch_id, from_id, to_id, *key.as_tuple(), qty, reason, note, undo_of),
     )
 
 
@@ -175,6 +177,14 @@ def acquire_many(
     return batch
 
 
+def _move_reason(conn: sqlite3.Connection, from_id: int, to_id: int) -> str:
+    if _location_type(conn, to_id) == "deck":
+        return "pull"
+    if _location_type(conn, from_id) == "deck":
+        return "return"
+    return "move"
+
+
 def move(
     conn: sqlite3.Connection,
     from_id: int,
@@ -184,17 +194,26 @@ def move(
     note: str = "",
 ) -> str:
     """Physically move copies. Into a deck is a pull, out of one a return."""
+    return move_many(conn, from_id, to_id, [(key, qty)], note)
+
+
+def move_many(
+    conn: sqlite3.Connection,
+    from_id: int,
+    to_id: int,
+    items: Iterable[tuple[StockKey, int]],
+    note: str = "",
+) -> str:
+    """Move several stock lines between the same two locations as one batch."""
     batch = new_batch_id()
     with transaction(conn):
-        to_type = _location_type(conn, to_id)
-        from_type = _location_type(conn, from_id)
-        if to_type == "deck":
-            reason = "pull"
-        elif from_type == "deck":
-            reason = "return"
-        else:
-            reason = "move"
-        _record(conn, batch, from_id, to_id, key, qty, reason, note)
+        reason = _move_reason(conn, from_id, to_id)
+        n = 0
+        for key, qty in items:
+            _record(conn, batch, from_id, to_id, key, qty, reason, note)
+            n += 1
+        if not n:
+            raise LedgerError("nothing selected")
     return batch
 
 
@@ -223,6 +242,46 @@ def sell(
     batch = new_batch_id()
     with transaction(conn):
         _record(conn, batch, location_id, None, key, qty, "sell", note)
+    return batch
+
+
+def undo_problem(conn: sqlite3.Connection, batch_id: str) -> str | None:
+    """Why ``batch_id`` can't be undone, or None if it can (stock permitting)."""
+    rows = conn.execute(
+        "SELECT reason, undo_of FROM movements WHERE batch_id = ?", (batch_id,)
+    ).fetchall()
+    if not rows:
+        return "unknown batch"
+    if any(r["undo_of"] for r in rows):
+        return "this is itself an undo"
+    if any(r["reason"] == "import" for r in rows):
+        return "imports can't be undone"
+    if conn.execute("SELECT 1 FROM movements WHERE undo_of = ? LIMIT 1", (batch_id,)).fetchone():
+        return "already undone"
+    return None
+
+
+def undo(conn: sqlite3.Connection, batch_id: str) -> str:
+    """Reverse a batch by writing compensating movements (rows are never deleted).
+
+    Fails, changing nothing, if the copies have since moved on.
+    """
+    batch = new_batch_id()
+    with transaction(conn):
+        problem = undo_problem(conn, batch_id)
+        if problem:
+            raise LedgerError(f"can't undo: {problem}")
+        rows = conn.execute(
+            "SELECT * FROM movements WHERE batch_id = ? ORDER BY id DESC", (batch_id,)
+        ).fetchall()
+        for m in rows:
+            src, dst = m["to_location_id"], m["from_location_id"]
+            reason = _move_reason(conn, src, dst) if src and dst else "adjust"
+            key = StockKey(m["printing_id"], m["finish"], m["condition"], m["lang"])
+            try:
+                _record(conn, batch, src, dst, key, m["qty"], reason, "undo", undo_of=batch_id)
+            except LedgerError as e:
+                raise LedgerError(f"can't undo: {e} (the cards have moved since)") from None
     return batch
 
 

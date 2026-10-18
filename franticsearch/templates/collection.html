@@ -17,12 +17,16 @@ Set <input name="set" value="{{ f.set_code }}" size="5" placeholder="e.g. c21">
 </form>
 <p class="muted">{{ total }} card{{ '' if total == 1 else 's' }} match.</p>
 {% if rows %}
+{{ m.view_switch() }}
+{% if view == 'images' %}
+<div class="cardgrid">{% for r in rows %}{{ m.card_tile(url_for('card', card_key=r.card_key), r.name, r.image, r.qty) }}{% endfor %}</div>
+{% else %}
 <table class="grid">
-<tr><th>Card</th><th>Cost</th><th>Type</th><th>Copies</th><th>Printings</th><th>Locations</th></tr>
+<tr>{{ m.sort_th('Card', 'name', f.sort) }}{{ m.sort_th('Cost', 'cost', f.sort) }}{{ m.sort_th('Type', 'type', f.sort) }}{{ m.sort_th('Copies', 'qty', f.sort) }}{{ m.sort_th('Printings', 'printings', f.sort) }}<th>Locations</th></tr>
 {% for r in rows %}
 <tr>
 <td>{{ m.card_link(url_for('card', card_key=r.card_key), r.name, r.image) }}</td>
-<td class="mono">{{ r.mana_cost or '' }}</td>
+<td class="cost">{{ r.mana_cost|mana }}</td>
 <td>{{ r.type_line or '' }}</td>
 <td class="num">{{ r.qty }}</td>
 <td class="num">{{ r.printings }}</td>
@@ -30,11 +34,12 @@ Set <input name="set" value="{{ f.set_code }}" size="5" placeholder="e.g. c21">
 </tr>
 {% endfor %}
 </table>
+{% endif %}
 {% set pages = ((total + page_size - 1) // page_size) %}
 {% if pages > 1 %}
 <div class="pager">Page:
 {% for p in range(1, pages + 1) %}
-{% if p == f.page %}<b>[{{ p }}]</b>{% else %}<a href="{{ url_for('collection', q=f.q, location=f.location_id or '', ltype=f.location_type, set=f.set_code, notindeck='1' if f.not_in_deck else '', page=p) }}">{{ p }}</a>{% endif %}
+{% if p == f.page %}<b>[{{ p }}]</b>{% else %}<a href="{{ url_for('collection', q=f.q, location=f.location_id or '', ltype=f.location_type, set=f.set_code, notindeck='1' if f.not_in_deck else '', sort=f.sort, page=p) }}">{{ p }}</a>{% endif %}
 {% endfor %}
 </div>
 {% endif %}

@@ -78,6 +78,20 @@ Decks are built here, so the editor is a first-class screen:
 ### 6. History & undo
 Ledger view per card, per location, per deck. Undo the last batch by writing compensating movements (never deleting rows).
 
+Decided (2026-10-18, UI improvements, pulled forward from phase 6):
+- Any batch can be undone, not only the last: from the "Undo that" button after an action, or per batch on the History page. Compensating rows carry `movements.undo_of`; a batch can be undone once, an undo can't itself be undone, and it fails (changing nothing) if the copies have moved since. One-sided rows reverse as `adjust`; moves reverse as move/pull/return by location type.
+- **Imports can't be undone** (yet): their records/hashes and queue would need unwinding too.
+
+### 7. Quick entry & reorganising (UI improvements, 2026-10-18)
+- **Quick add** on the Add page: qty + location per search result, default printing as in deck import (free owned, else newest released paper). The last location used is remembered in the session and preselected (here and on the card page).
+- **Paste a list into a location**: Moxfield-style lines (count optional, `(SET) number`, `*F*`); default printing for lines without a set. Quick entry, not an import: no hash, no queue, recorded as `acquire`, undoable. Unmatched lines come back once, prefilled, with their problems.
+- **Move ticked**: checkboxes on a location page move *all copies* of the ticked lines to one non-deck location in one batch (partial moves stay on the per-row form). "tick all" is a link, no JS.
+- **Nav search** box on every page: jumps to the card on an exact (full or front-face) name match, preferring real cards over art-series cards; else shows the result list.
+- **Sortable columns** via `?sort=key` / `-key` on the collection, location and deck tables (whitelisted server-side).
+- **Deck page**: main deck grouped by type (first match of Creature, Planeswalker, Battle, Land, Instant, Sorcery, Artifact, Enchantment on the front face), shown Creatures → … → Lands; text mana curve over non-land main + commander cards.
+- **Text | Images view** on the collection, location, deck and Add pages: a grid of card images (lazy-loaded, with a copy-count badge; the deck keeps its type groups). The choice is remembered in the session for all card lists. Row actions (move, recount, remove, quick add, tick boxes) live in the text view only.
+- **Mana symbols** rendered as Scryfall's SVGs (hotlinked, like card images) in costs and oracle text; alt text keeps `{W}` for copy/paste.
+
 ## Import / migration from Moxfield
 
 1. **Collection CSV** (Moxfield export: Count, Name, Edition, Collector Number, Foil, Condition, Language…) → into a chosen location, default "Unsorted". Resolution by (set, collector number) → fallback (name, set) → unresolved queue for manual fix.

@@ -5,20 +5,25 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import secrets
 import sqlite3
 import threading
 import time
 
 from flask import (
-    Flask, abort, flash, g, redirect, render_template, request, url_for,
+    Flask, abort, flash, g, redirect, render_template, request, session, url_for,
 )
+from markupsafe import Markup, escape
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from . import __version__, db, decks, importer, ledger, locations, queries, scryfall
 from .ledger import CONDITION_NAMES, CONDITIONS, FINISHES, LANGUAGES, LedgerError, StockKey
 
 log = logging.getLogger(__name__)
+
+# How card lists are shown: a text table (with actions) or a grid of card images.
+VIEWS = ("text", "images")
 
 # Default destination for collection imports (created on first use).
 UNSORTED = "Unsorted"
@@ -50,6 +55,8 @@ def create_app(config: dict | None = None) -> Flask:
     @app.before_request
     def _open_db() -> None:
         g.db = db.connect(app.config["DATABASE"])
+        if request.args.get("view") in VIEWS:  # card list view, remembered for the session
+            session["view"] = request.args["view"]
 
     @app.teardown_request
     def _close_db(_exc: BaseException | None) -> None:
@@ -69,11 +76,17 @@ def create_app(config: dict | None = None) -> Flask:
             "BOARDS": decks.BOARDS,
             "BOARD_NAMES": decks.BOARD_NAMES,
             "FORMATS": decks.FORMATS,
+            "last_location": session.get("last_location"),
+            "view": session.get("view", "text"),
         }
 
     @app.template_filter("fromjson")
     def _fromjson(value: str | None):
         return json.loads(value) if value else None
+
+    @app.template_filter("mana")
+    def _mana(text: str | None) -> Markup:
+        return mana_symbols(text)
 
     _register_routes(app)
     if app.config["AUTO_SYNC"]:
@@ -82,6 +95,40 @@ def create_app(config: dict | None = None) -> Flask:
 
 
 # --------------------------------------------------------------------------- helpers
+
+_SYMBOL = re.compile(r"\{([^{}]{1,8})\}")
+_SYMBOL_FILES = {"½": "HALF", "∞": "INFINITY"}
+
+
+def mana_symbols(text: str | None) -> Markup:
+    """Escape ``text`` and render {W}, {2/U}, {T} ... as Scryfall's symbol images."""
+    if not text:
+        return Markup("")
+    out, pos = [], 0
+    for m in _SYMBOL.finditer(text):
+        sym = m.group(1)
+        name = _SYMBOL_FILES.get(sym, sym.replace("/", "").upper())
+        out.append(escape(text[pos:m.start()]))
+        if name.isascii() and name.isalnum():
+            out.append(Markup(
+                '<img class="sym" src="https://svgs.scryfall.io/card-symbols/{}.svg" alt="{}" title="{}">'
+            ).format(name, m.group(0), m.group(0)))
+        else:
+            out.append(escape(m.group(0)))
+        pos = m.end()
+    out.append(escape(text[pos:]))
+    return Markup("").join(out)
+
+
+def _done(message: str, batch: str | None) -> None:
+    """Flash a success message, plus an Undo button for the batch it wrote."""
+    flash(message, "ok")
+    if batch:
+        flash(batch, "undo")
+
+
+def _remember_location(location_id: int) -> None:
+    session["last_location"] = location_id
 
 def _int_arg(name: str, default: int | None = None) -> int | None:
     try:
@@ -177,6 +224,7 @@ def _register_routes(app: Flask) -> None:
             not_in_deck=request.args.get("notindeck") == "1",
             set_code=request.args.get("set", "").strip(),
             page=_int_arg("page", 1) or 1,
+            sort=request.args.get("sort", "name"),
         )
         rows, total = queries.collection(conn, f)
         return render_template(
@@ -208,7 +256,46 @@ def _register_routes(app: Flask) -> None:
     def add():
         q = request.args.get("q", "").strip()
         results = queries.search_cards(g.db, q) if q else []
-        return render_template("add.html", q=q, results=results)
+        if request.args.get("go"):  # nav search: straight to the card if it's unambiguous
+            exact = ([r for r in results if r["name"].lower() == q.lower()]
+                     or [r for r in results if r["name"].split(" // ")[0].lower() == q.lower()])
+            exact = [r for r in exact if r["layout"] != "art_series"] or exact
+            hit = exact[0] if len(exact) == 1 else results[0] if len(results) == 1 else None
+            if hit:
+                return redirect(url_for("card", card_key=hit["card_key"]))
+        return render_template("add.html", q=q, results=results, locs=_manual_locations(g.db))
+
+    @app.post("/stock/quick-add")
+    def stock_quick_add():
+        """Add copies of a card in its default printing (free owned, else newest paper)."""
+        conn = g.db
+        try:
+            printings = queries.card_printings(conn, request.form.get("card_key", ""))
+            if not printings:
+                raise LedgerError("unknown card")
+            loc = _int_arg("location_id")
+            if loc is None:
+                raise LedgerError("choose a location")
+            qty = _form_qty()
+            key = importer.default_key(conn, printings)
+            batch = ledger.acquire(conn, loc, key, qty)
+            _remember_location(loc)
+            p = next(p for p in printings if p["scryfall_id"] == key.printing_id)
+            _done(f"Added {qty}× {p['name']} ({p['set_code'].upper()} #{p['collector_number']}"
+                  f"{', ' + key.finish if key.finish != 'nonfoil' else ''}) to "
+                  f"{locations.get(conn, loc)['name']}.", batch)
+        except LedgerError as e:
+            flash(str(e), "error")
+        return redirect(_back(url_for("add")))
+
+    @app.post("/undo")
+    def undo():
+        try:
+            ledger.undo(g.db, request.form.get("batch", ""))
+            flash("Undone.", "ok")
+        except LedgerError as e:
+            flash(str(e), "error")
+        return redirect(_back(url_for("history")))
 
     @app.post("/stock/acquire")
     def stock_acquire():
@@ -219,8 +306,9 @@ def _register_routes(app: Flask) -> None:
             if loc is None:
                 raise LedgerError("choose a location")
             qty = _form_qty()
-            ledger.acquire(conn, loc, key, qty, note=request.form.get("note", "").strip())
-            flash(f"Added {qty} cop{'y' if qty == 1 else 'ies'}.", "ok")
+            batch = ledger.acquire(conn, loc, key, qty, note=request.form.get("note", "").strip())
+            _remember_location(loc)
+            _done(f"Added {qty} cop{'y' if qty == 1 else 'ies'}.", batch)
         except LedgerError as e:
             flash(str(e), "error")
         return redirect(_back(url_for("collection")))
@@ -236,8 +324,8 @@ def _register_routes(app: Flask) -> None:
             if src is None or dst is None:
                 raise LedgerError("choose a destination")
             qty = _form_qty()
-            ledger.move(conn, src, dst, key, qty, note=request.form.get("note", "").strip())
-            flash(f"Moved {qty}.", "ok")
+            batch = ledger.move(conn, src, dst, key, qty, note=request.form.get("note", "").strip())
+            _done(f"Moved {qty}.", batch)
         except LedgerError as e:
             flash(str(e), "error")
         return redirect(_back(url_for("collection")))
@@ -251,8 +339,9 @@ def _register_routes(app: Flask) -> None:
             if loc is None:
                 raise LedgerError("missing location")
             qty = _form_qty()
-            if ledger.adjust(conn, loc, key, qty, note=request.form.get("note", "").strip()):
-                flash(f"Count set to {qty}.", "ok")
+            batch = ledger.adjust(conn, loc, key, qty, note=request.form.get("note", "").strip())
+            if batch:
+                _done(f"Count set to {qty}.", batch)
             else:
                 flash("Count unchanged.", "ok")
         except LedgerError as e:
@@ -268,8 +357,8 @@ def _register_routes(app: Flask) -> None:
             if loc is None:
                 raise LedgerError("missing location")
             qty = _form_qty()
-            ledger.sell(conn, loc, key, qty, note=request.form.get("note", "").strip())
-            flash(f"Removed {qty} from the collection.", "ok")
+            batch = ledger.sell(conn, loc, key, qty, note=request.form.get("note", "").strip())
+            _done(f"Removed {qty} from the collection.", batch)
         except LedgerError as e:
             flash(str(e), "error")
         return redirect(_back(url_for("collection")))
@@ -300,12 +389,60 @@ def _register_routes(app: Flask) -> None:
         loc = locations.get(conn, location_id)
         if loc is None:
             abort(404)
+        # lines a paste couldn't match: shown (prefilled) once, on this location's page
+        paste = session.pop("paste") if (session.get("paste") or {}).get("loc") == location_id else None
         return render_template(
-            "location.html", loc=loc, stock=queries.location_stock(conn, location_id),
-            deck=decks.by_location(conn, location_id),
+            "location.html", loc=loc,
+            stock=queries.location_stock(conn, location_id, request.args.get("sort", "name")),
+            deck=decks.by_location(conn, location_id), tick_all=request.args.get("all") == "1",
+            paste=paste,
             locs=_manual_locations(conn), has_history=locations.has_history(conn, location_id),
             history=queries.history(conn, location_id=location_id)[:20],
         )
+
+    @app.post("/locations/<int:location_id>/move-selected")
+    def location_move_selected(location_id: int):
+        conn = g.db
+        back = _back(url_for("location_view", location_id=location_id))
+        try:
+            dst = _int_arg("to_id")
+            if dst is None:
+                raise LedgerError("choose a destination")
+            items = []
+            for row in request.form.getlist("row"):
+                parts = row.split("|")
+                if len(parts) != 4:
+                    raise LedgerError("bad selection")
+                key = StockKey(*parts)
+                qty = ledger.qty_at(conn, location_id, key)
+                if qty:
+                    items.append((key, qty))
+            batch = ledger.move_many(conn, location_id, dst, items)
+            _done(f"Moved {sum(q for _, q in items)} copies ({len(items)} lines) to "
+                  f"{locations.get(conn, dst)['name']}.", batch)
+        except LedgerError as e:
+            flash(str(e), "error")
+        return redirect(back)
+
+    @app.post("/locations/<int:location_id>/paste")
+    def location_paste(location_id: int):
+        conn = g.db
+        session.pop("paste", None)
+        try:
+            batch, added, left = importer.paste_into(conn, location_id, request.form.get("text", ""))
+            if added:
+                _remember_location(location_id)
+                _done(f"Added {added} cop{'y' if added == 1 else 'ies'}.", batch)
+            if left:
+                # kept in the (cookie) session for the next page view, so keep it small
+                session["paste"] = {"loc": location_id, "text": "\n".join(r for r, _ in left)[:1500],
+                                    "problems": [f"{r}: {p}"[:120] for r, p in left][:10]}
+                flash(f"{len(left)} line(s) didn't match; they are back in the box below.", "error")
+            elif not added:
+                flash("Nothing to add.", "error")
+        except LedgerError as e:
+            flash(str(e), "error")
+        return redirect(url_for("location_view", location_id=location_id) + "#paste")
 
     @app.post("/locations/<int:location_id>/edit")
     def location_edit(location_id: int):
@@ -471,8 +608,19 @@ def _register_routes(app: Flask) -> None:
         if deck is None:
             abort(404)
         imp = conn.execute("SELECT id FROM imports WHERE deck_id = ?", (deck_id,)).fetchone()
+        sort = request.args.get("sort", "name")
+        keys = {"name": lambda s: s["name"].lower(), "cost": lambda s: (s["cmc"] or 0, s["name"].lower()),
+                "qty": lambda s: (s["qty_wanted"], s["name"].lower())}
+        key = keys.get(sort.lstrip("-"), keys["name"])
+        slots = decks.slots(conn, deck_id)
+        boards = {b: [s for s in slots if s["board"] == b] for b in decks.BOARDS}
         return render_template(
-            "deck.html", deck=deck, slots=decks.slots(conn, deck_id),
+            "deck.html", deck=deck, slots=slots, sort=sort,
+            groups=[(g_, rows[::-1] if sort.startswith("-") else rows)
+                    for g_, rows in decks.grouped(boards["main"], key)],
+            others={b: sorted(boards[b], key=key, reverse=sort.startswith("-"))
+                    for b in ("commander", "side", "maybe")},
+            curve=decks.mana_curve(boards["main"] + boards["commander"]),
             import_id=imp["id"] if imp else None,
             deletable=not locations.has_history(conn, deck["location_id"]),
         )

@@ -4,9 +4,10 @@ from franticsearch import db
 def test_migrate_is_idempotent(tmp_path):
     conn = db.connect(tmp_path / "x.db")
     first = db.migrate(conn)
-    assert first == ["001_initial.sql", "002_location_archive.sql", "003_imports.sql"]
+    assert first == ["001_initial.sql", "002_location_archive.sql", "003_imports.sql",
+                     "004_undo.sql"]
     assert db.migrate(conn) == []
-    assert db.schema_version(conn) == 3
+    assert db.schema_version(conn) == 4
     tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert {"printings", "locations", "stock", "movements", "decks", "deck_slots", "meta",
             "imports", "import_unresolved"} <= tables

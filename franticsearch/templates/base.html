@@ -18,10 +18,13 @@
 <a href="{{ url_for('import_index') }}" class="{{ 'on' if ep and ep.startswith('import') }}">Import</a>
 <a href="{{ url_for('history') }}" class="{{ 'on' if ep == 'history' }}">History</a>
 <a href="{{ url_for('system') }}" class="{{ 'on' if ep == 'system' }}">System</a>
+<form class="navsearch" method="get" action="{{ url_for('add') }}"><input type="hidden" name="go" value="1"><input name="q" size="16" placeholder="Find a card" aria-label="Find a card"> <button>Go</button></form>
 </div>
 <div id="main">
 {% for cat, msg in get_flashed_messages(with_categories=true) %}
-<div class="flash {{ cat }}">{{ msg }}</div>
+{% if cat == 'undo' %}
+<form class="flash ok undo" method="post" action="{{ url_for('undo') }}"><input type="hidden" name="batch" value="{{ msg }}"><input type="hidden" name="next" value="{{ request.script_root ~ request.full_path }}"><button>Undo that</button></form>
+{% else %}<div class="flash {{ cat }}">{{ msg }}</div>{% endif %}
 {% endfor %}
 {% block body %}{% endblock %}
 </div>
