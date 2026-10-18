@@ -2,7 +2,7 @@
 
 Self-hosted Magic: The Gathering collection & deck manager where **every physical card has a location** and decks are just locations. See [PLAN.md](PLAN.md) for the design and roadmap.
 
-Status: **Phase 1 (foundation)**: card database, locations, stock + ledger, collection browser, manual add / move / adjust / remove.
+Status: **Phase 2 (import)**: card database, locations, stock + ledger, collection browser, manual add / move / adjust / remove, Moxfield import (deck lists → read-only decks, collection CSV → a location) with a queue for lines that need a decision.
 
 ## Run with Docker
 
@@ -45,6 +45,8 @@ pytest
 | `franticsearch/migrations/` | numbered SQL migrations (`PRAGMA user_version`) |
 | `franticsearch/ledger.py` | the only code that changes stock: acquire / move / adjust / sell + consistency check |
 | `franticsearch/locations.py` | location CRUD |
+| `franticsearch/decks.py` | decks, their deck locations and slots |
+| `franticsearch/importer.py` | Moxfield deck text / collection CSV import and the unresolved queue |
 | `franticsearch/scryfall.py` | bulk-data sync (`default_cards`) into `printings` |
 | `franticsearch/queries.py` | read-only queries for the UI |
 | `franticsearch/app.py`, `templates/`, `static/` | Flask UI, plain HTML forms |

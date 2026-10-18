@@ -1,0 +1,28 @@
+{% extends "base.html" %}{% block title %}Import #{{ imp.id }}{% endblock %}
+{% block body %}
+<h1>Import #{{ imp.id }} <span class="muted">({{ imp.kind }})</span></h1>
+<table class="grid kv">
+<tr><th>When</th><td>{{ imp.ts[:16].replace('T', ' ') }} UTC</td></tr>
+{% if imp.filename %}<tr><th>File</th><td>{{ imp.filename }}</td></tr>{% endif %}
+<tr><th>Into</th><td>{% if imp.kind == 'deck' %}deck <a href="{{ url_for('deck_view', deck_id=imp.deck_id) }}">{{ imp.deck_name }}</a>{% else %}<a href="{{ url_for('location_view', location_id=imp.location_id) }}">{{ imp.location_name }}</a>{% endif %}</td></tr>
+{% if imp.kind == 'deck' %}<tr><th>Commander</th><td>{{ commanders|join(' & ') if commanders else '(none)' }}</td></tr>{% endif %}
+<tr><th>Card lines</th><td class="num">{{ imp.lines }}</td></tr>
+<tr><th>{{ 'Copies added' if imp.kind == 'collection' else 'Cards in deck' }}</th><td class="num">{{ imp.imported }}</td></tr>
+{% if imp.skipped %}<tr><th>Skipped (proxies)</th><td class="num">{{ imp.skipped }}</td></tr>{% endif %}
+<tr><th>Open problems</th><td class="num">{{ imp.open }}</td></tr>
+</table>
+
+<h2>Unresolved lines</h2>
+{% if rows %}
+<table class="grid">
+<tr><th>Line</th><th>Qty</th><th>As written</th><th>Problem</th><th>Status</th><th></th></tr>
+{% for u in rows %}
+<tr><td class="num">{{ u.line_no }}</td><td class="num">{{ u.qty }}</td>
+<td class="mono">{{ u.raw }}</td><td>{{ u.problem }}</td><td>{{ u.status }}</td>
+<td>{% if u.status == 'open' %}<a href="{{ url_for('import_fix', uid=u.id) }}">Fix&hellip;</a>
+<form class="inline" method="post" action="{{ url_for('import_dismiss', uid=u.id) }}"><button title="Don't import this line">Dismiss</button></form>{% endif %}</td></tr>
+{% endfor %}
+</table>
+{% else %}<p class="muted">Every line was matched.</p>{% endif %}
+<p><a href="{{ url_for('import_index') }}">&larr; All imports</a></p>
+{% endblock %}

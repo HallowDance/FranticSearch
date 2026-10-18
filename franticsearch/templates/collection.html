@@ -1,4 +1,4 @@
-{% extends "base.html" %}{% block title %}Collection{% endblock %}
+{% extends "base.html" %}{% import "macros.html" as m with context %}{% block title %}Collection{% endblock %}
 {% block body %}
 <h1>Collection</h1>
 <form method="get" action="{{ url_for('collection') }}">
@@ -21,7 +21,7 @@ Set <input name="set" value="{{ f.set_code }}" size="5" placeholder="e.g. c21">
 <tr><th>Card</th><th>Cost</th><th>Type</th><th>Copies</th><th>Printings</th><th>Locations</th></tr>
 {% for r in rows %}
 <tr>
-<td><a href="{{ url_for('card', card_key=r.card_key) }}">{{ r.name }}</a></td>
+<td>{{ m.card_link(url_for('card', card_key=r.card_key), r.name, r.image) }}</td>
 <td class="mono">{{ r.mana_cost or '' }}</td>
 <td>{{ r.type_line or '' }}</td>
 <td class="num">{{ r.qty }}</td>

@@ -4,8 +4,8 @@ Every change to ``stock`` is written together with a ``movements`` row in one
 transaction, so ``stock`` always equals the ledger's projection. ``check()``
 verifies that.
 
-All public functions open their own transaction and return the batch id that
-groups the movements they wrote.
+All public functions open their own transaction (or join the caller's, see
+``db.transaction``) and return the batch id that groups the movements they wrote.
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ import json
 import sqlite3
 import uuid
 from dataclasses import dataclass
+from typing import Iterable
 
 from .db import transaction
 
@@ -27,6 +28,14 @@ CONDITION_NAMES = {
     "DMG": "Damaged",
 }
 LOCATION_TYPES = ("binder", "box", "deck", "lent", "other")
+# Scryfall language codes, in the order Scryfall lists them.
+LANGUAGES = {
+    "en": "English", "es": "Spanish", "fr": "French", "de": "German", "it": "Italian",
+    "pt": "Portuguese", "ja": "Japanese", "ko": "Korean", "ru": "Russian",
+    "zhs": "Simplified Chinese", "zht": "Traditional Chinese", "he": "Hebrew",
+    "la": "Latin", "grc": "Ancient Greek", "ar": "Arabic", "sa": "Sanskrit",
+    "ph": "Phyrexian", "qya": "Quenya",
+}
 
 
 class LedgerError(ValueError):
@@ -48,7 +57,7 @@ def new_batch_id() -> str:
     return uuid.uuid4().hex
 
 
-def _validate_key(conn: sqlite3.Connection, key: StockKey) -> None:
+def validate_key(conn: sqlite3.Connection, key: StockKey) -> None:
     row = conn.execute(
         "SELECT finishes FROM printings WHERE scryfall_id = ?", (key.printing_id,)
     ).fetchone()
@@ -116,7 +125,7 @@ def _record(
         raise LedgerError("quantity must be positive")
     if from_id is not None and from_id == to_id:
         raise LedgerError("source and destination are the same location")
-    _validate_key(conn, key)
+    validate_key(conn, key)
     if from_id is not None:
         _location_type(conn, from_id)
         _change(conn, from_id, key, -qty)
@@ -146,6 +155,23 @@ def acquire(
     batch = new_batch_id()
     with transaction(conn):
         _record(conn, batch, None, location_id, key, qty, reason, note)
+    return batch
+
+
+def acquire_many(
+    conn: sqlite3.Connection,
+    location_id: int,
+    items: Iterable[tuple[StockKey, int]],
+    note: str = "",
+    reason: str = "import",
+) -> str:
+    """Several acquisitions into one location as a single batch (e.g. a file import)."""
+    if reason not in ("acquire", "import"):
+        raise LedgerError(f"bad reason for acquire: {reason}")
+    batch = new_batch_id()
+    with transaction(conn):
+        for key, qty in items:
+            _record(conn, batch, None, location_id, key, qty, reason, note)
     return batch
 
 

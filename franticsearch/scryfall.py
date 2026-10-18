@@ -45,6 +45,7 @@ _COLUMNS = (
     "collector_number", "released_at", "rarity", "layout", "finishes",
     "mana_cost", "cmc", "colors", "color_identity", "type_line",
     "oracle_text", "legalities", "image_small", "image_normal",
+    "face_name", "set_type", "digital", "promo",
 )
 _UPSERT_SQL = (
     f"INSERT INTO printings({', '.join(_COLUMNS)}) VALUES ({', '.join('?' * len(_COLUMNS))})"
@@ -100,6 +101,10 @@ def card_to_row(card: dict) -> tuple:
         json.dumps(card.get("legalities") or {}),
         images.get("small"),
         images.get("normal"),
+        faces[0]["name"] if faces and faces[0].get("name") else card["name"],
+        card.get("set_type"),
+        int(bool(card.get("digital"))),
+        int(bool(card.get("promo"))),
     )
 
 
