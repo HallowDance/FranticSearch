@@ -15,7 +15,7 @@
 <input type="hidden" name="finish" value="{{ row.finish }}">
 <input type="hidden" name="condition" value="{{ row.condition }}">
 <input type="hidden" name="lang" value="{{ row.lang }}">
-<input type="hidden" name="next" value="{{ request.full_path }}">
+<input type="hidden" name="next" value="{{ request.script_root ~ request.full_path }}">
 {%- endmacro %}
 
 {% macro stock_actions(row, locs) -%}
