@@ -4,12 +4,18 @@ Uses the ``default_cards`` bulk file (every printing, in English or its only
 language) per Scryfall's guidelines: one bulk download instead of per-card
 API calls, with a descriptive User-Agent and an Accept header.
 
+Scryfall serves the bulk file as gzipped JSON Lines (``jsonl_download_uri``);
+older files were one JSON array (``download_uri``). ``import_stream`` accepts
+either, gzipped or not.
+
 Printings are upserted and never deleted, because stock and the ledger
 reference them.
 """
 
 from __future__ import annotations
 
+import gzip
+import io
 import json
 import logging
 import sqlite3
@@ -108,12 +114,26 @@ def _batched(items: Iterable[Any], n: int) -> Iterable[list[Any]]:
         yield batch
 
 
+def _iter_cards(fp: IO[bytes]) -> Iterable[dict]:
+    """Yield objects from a bulk file: JSON array or JSON Lines, optionally gzipped."""
+    if not hasattr(fp, "peek"):
+        fp = io.BufferedReader(fp)
+    if fp.peek(2)[:2] == b"\x1f\x8b":
+        fp = io.BufferedReader(gzip.GzipFile(fileobj=fp))
+    if fp.peek(256).lstrip()[:1] == b"[":
+        yield from ijson.items(fp, "item", use_float=True)
+    else:
+        for line in fp:
+            if line.strip():
+                yield json.loads(line)
+
+
 def import_stream(
     conn: sqlite3.Connection, fp: IO[bytes], progress: Callable[[int], None] | None = None
 ) -> int:
-    """Stream a Scryfall bulk JSON array into ``printings``. Returns cards processed."""
+    """Stream a Scryfall bulk file into ``printings``. Returns cards processed."""
     total = 0
-    for batch in _batched(ijson.items(fp, "item", use_float=True), BATCH_SIZE):
+    for batch in _batched(_iter_cards(fp), BATCH_SIZE):
         rows = [card_to_row(c) for c in batch if c.get("object") == "card"]
         with transaction(conn):
             conn.executemany(_UPSERT_SQL, rows)
@@ -155,7 +175,8 @@ def sync(
 
         _status(conn, "downloading")
         with tempfile.TemporaryFile() as tmp:
-            with http.get(info["download_uri"], headers=HEADERS, stream=True, timeout=60) as resp:
+            url = info.get("jsonl_download_uri") or info["download_uri"]
+            with http.get(url, headers=HEADERS, stream=True, timeout=60) as resp:
                 resp.raise_for_status()
                 for chunk in resp.iter_content(chunk_size=1 << 20):
                     tmp.write(chunk)

@@ -15,8 +15,8 @@ python3 -m venv .venv && . .venv/bin/activate && pip install -e ".[dev,serve]"
 pytest                                   # full suite (fast, no network)
 python -m franticsearch serve            # dev server http://127.0.0.1:6602 (auto-syncs Scryfall)
 python -m franticsearch serve --no-auto-sync
-python -m franticsearch sync [--force]   # Scryfall default_cards → printings (~500 MB download)
-python -m franticsearch sync --file x.json   # import a local Scryfall bulk file
+python -m franticsearch sync [--force]   # Scryfall default_cards → printings (~80 MB .jsonl.gz, ~25 s)
+python -m franticsearch sync --file x.jsonl.gz   # import a local bulk file (.jsonl/.json, gz or not)
 python -m franticsearch check            # stock vs ledger invariant (exit 1 on mismatch)
 docker compose up -d --build             # production-style, DB in ./data
 ```
@@ -31,7 +31,7 @@ Env: `FS_DB` (default `data/franticsearch.db`), `FS_AUTO_SYNC` (default `1`), `F
 | `franticsearch/db.py` | Connections (WAL, FKs on, autocommit + explicit `transaction()`), migration runner, `meta` key/value helpers |
 | `franticsearch/ledger.py` | **The only code that changes `stock`.** acquire / move / adjust / sell write stock + a `movements` row in one transaction; `check()` verifies the invariant |
 | `franticsearch/locations.py` | Location CRUD, archive/unarchive |
-| `franticsearch/scryfall.py` | Bulk sync (streamed with `ijson`, upsert, never deletes printings) |
+| `franticsearch/scryfall.py` | Bulk sync (gzipped JSONL from `jsonl_download_uri`; legacy JSON arrays via `ijson`; upsert, never deletes printings) |
 | `franticsearch/queries.py` | Read-only queries for the UI |
 | `franticsearch/app.py` + `templates/` + `static/style.css` | Flask routes (POST-redirect-GET, flash messages); `macros.html` holds shared stock-row actions |
 | `tests/` | pytest; `fixtures_default_cards.json` is a hand-written Scryfall-format sample (SOL_C21/SOL_CMM/DELVER/BOLT ids in `conftest.py`) |
@@ -49,6 +49,7 @@ Keep domain logic framework-free (unit-testable) and the Flask layer thin.
 
 ## Status
 
-- **Phase 1 (foundation)** is implemented on branch `phase-1`, PR #1. 24 tests pass.
-- **Still unverified** (the cloud session couldn't reach these): the live Scryfall sync, and `docker compose up --build` with the Dockerfile exactly as committed. Verify both first: the System page should end at status `idle`, ~110k printings, a Scryfall file date, and "Run check" = OK.
+- **Phase 1 (foundation)** is implemented on branch `phase-1`, PR #1. 28 tests pass.
+- Live Scryfall sync verified 2026-10-18 (CLI and gunicorn background auto-sync from an empty DB: status `idle`, 118,893 printings, check OK). Scryfall had dropped `download_uri` (JSON array) for `jsonl_download_uri` (gzipped JSONL); the importer handles both.
+- **Still unverified**: `docker compose up --build` itself (no container runtime on the dev machine). The Dockerfile's steps were replayed outside a container (non-editable install, its gunicorn CMD, all pages 200), so what remains is the image build and the `./data` volume.
 - Next: Phase 2, Moxfield import (see PLAN.md § Import / migration and § Phases).

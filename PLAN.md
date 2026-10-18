@@ -89,7 +89,7 @@ Ledger view per card, per location, per deck. Undo the last batch by writing com
 
 - **Python 3.11+ / Flask + Jinja**: server-rendered HTML forms, no JavaScript build step; deliberately plain 90s/00s FOSS look
 - **SQLite** via the standard library `sqlite3` (WAL mode); numbered plain-SQL migrations tracked in `PRAGMA user_version`
-- **Scryfall bulk data** (`default_cards`) streamed with `ijson` into `printings` on first run and re-checked daily (background thread); images hotlinked from Scryfall CDN. Follows Scryfall's API guidelines (bulk file, User-Agent + Accept headers)
+- **Scryfall bulk data** (`default_cards`, served by Scryfall as gzipped JSON Lines, ~80 MB) streamed into `printings` on first run and re-checked daily (background thread); images hotlinked from Scryfall CDN. Follows Scryfall's API guidelines (bulk file, User-Agent + Accept headers)
 - **pytest** for domain logic (ledger invariants, pull/return planning, import parsing) and Flask test-client page tests
 - **Docker** single container running gunicorn (1 worker, threads), DB in a mounted volume; backup = copy the DB file
 

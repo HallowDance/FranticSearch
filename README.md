@@ -27,7 +27,7 @@ Other commands:
 |---|---|
 | `python -m franticsearch migrate` | create/upgrade the schema |
 | `python -m franticsearch sync [--force]` | update the Scryfall cache |
-| `python -m franticsearch sync --file default-cards.json` | import a manually downloaded Scryfall bulk file |
+| `python -m franticsearch sync --file default-cards.jsonl.gz` | import a manually downloaded Scryfall bulk file (`.jsonl`/`.json`, gzipped or not) |
 | `python -m franticsearch check` | verify stock equals the ledger (exit 1 on mismatch) |
 
 Settings (environment): `FS_DB` (database path, default `data/franticsearch.db`), `FS_AUTO_SYNC` (`1`/`0`, default `1`), `FS_SECRET_KEY` (optional; otherwise generated and stored in the DB).

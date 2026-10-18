@@ -1,5 +1,8 @@
+import gzip
 import io
 import json
+
+import pytest
 
 from conftest import DELVER, FIXTURE, SOL_C21
 
@@ -37,6 +40,22 @@ def test_non_card_objects_are_skipped(tmp_path):
     assert n == 0
 
 
+def _jsonl(cards):
+    return b"".join(json.dumps(c).encode() + b"\n" for c in cards)
+
+
+@pytest.mark.parametrize("encode", [
+    lambda b: b,
+    lambda b: gzip.compress(b),
+    lambda b: _jsonl(json.loads(b)),
+    lambda b: gzip.compress(_jsonl(json.loads(b))),
+], ids=["json", "json.gz", "jsonl", "jsonl.gz"])
+def test_import_accepts_bulk_formats(tmp_path, encode):
+    conn = db.connect(tmp_path / "f.db")
+    db.migrate(conn)
+    assert scryfall.import_stream(conn, io.BytesIO(encode(FIXTURE.read_bytes()))) == 4
+
+
 class FakeResponse:
     def __init__(self, payload=None, body=b""):
         self._payload, self._body = payload, body
@@ -65,8 +84,12 @@ class FakeSession:
     def get(self, url, **kw):
         self.calls.append((url, kw["headers"]))
         if url == scryfall.BULK_INDEX_URL:
-            return FakeResponse({"updated_at": self.updated_at, "download_uri": "https://data.example/cards.json"})
-        return FakeResponse(body=FIXTURE.read_bytes())
+            return FakeResponse({
+                "updated_at": self.updated_at,
+                "jsonl_download_uri": "https://data.example/cards.jsonl.gz",
+            })
+        assert url == "https://data.example/cards.jsonl.gz"
+        return FakeResponse(body=gzip.compress(_jsonl(json.loads(FIXTURE.read_bytes()))))
 
 
 def test_sync_downloads_then_skips_unchanged(tmp_path):
