@@ -8,6 +8,11 @@ Name <input name="q" value="{{ q }}" size="32" autofocus> <button>Search</button
 </form>
 {% if q %}
 {% if results %}
+{{ m.view_switch() }}
+{% if view == 'images' %}
+<p class="muted">Pick a card to choose its printing and add it. Switch to the text view for quick add.</p>
+<div class="cardgrid">{% for r in results %}{{ m.card_tile(url_for('card', card_key=r.card_key) ~ '#add', r.name, r.image) }}{% endfor %}</div>
+{% else %}
 <p class="muted">Quick add uses your free owned printing if you have one, else the newest regular paper printing. Open a card to choose the exact printing, finish, condition or language.</p>
 <table class="grid">
 <tr><th>Card</th><th>Cost</th><th>Type</th><th>Printings</th>{% if locs %}<th>Quick add</th>{% endif %}</tr>
@@ -18,6 +23,7 @@ Name <input name="q" value="{{ q }}" size="32" autofocus> <button>Search</button
 <input type="number" name="qty" value="1" min="1" aria-label="quantity"> &rarr; <select name="location_id" aria-label="location">{% for l in locs %}<option value="{{ l.id }}" {{ 'selected' if l.id == last_location }}>{{ l.name }}</option>{% endfor %}</select> <button>Add</button></form></td>{% endif %}</tr>
 {% endfor %}
 </table>
+{% endif %}
 {% if not locs %}<p class="muted">Create a <a href="{{ url_for('locations_list') }}">location</a> to enable quick add.</p>{% endif %}
 {% else %}<p>No card matches <b>{{ q }}</b>.</p>{% endif %}
 {% endif %}

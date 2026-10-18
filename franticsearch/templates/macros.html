@@ -11,6 +11,20 @@
 <th><a class="sort" href="{{ url_for(request.endpoint, **args) }}">{{ label }}</a>{% if current == key %} &#9650;{% elif current == '-' ~ key %} &#9660;{% endif %}</th>
 {%- endmacro %}
 
+{# Text | Images switch for card lists (the choice is kept in the session). #}
+{% macro view_switch() -%}
+<p class="viewswitch">View:
+{% for v, label in [('text', 'Text'), ('images', 'Images')] %}
+{% set args = request.args.to_dict() %}{% set _ = args.update(view=v) %}{% set _ = args.update(request.view_args) %}
+{% if view == v %}<b>[{{ label }}]</b>{% else %}<a href="{{ url_for(request.endpoint, **args) }}">{{ label }}</a>{% endif %}
+{% endfor %}</p>
+{%- endmacro %}
+
+{# One card in the image view: picture (lazy), copy count badge, caption. #}
+{% macro card_tile(href, name, image, qty=none, caption='') -%}
+<a class="tile" href="{{ href }}" title="{{ name }}">{% if image %}<img src="{{ image }}" alt="{{ name }}" loading="lazy">{% else %}<span class="noimg">{{ name }}</span>{% endif %}{% if qty %}<span class="qty">{{ qty }}</span>{% endif %}<span class="cap">{{ caption or name }}</span></a>
+{%- endmacro %}
+
 {% macro key_tags(row) -%}
 {% if row.finish != 'nonfoil' %}<span class="tag">{{ row.finish }}</span>{% endif %}
 {% if row.condition != 'NM' %}<span class="tag" title="{{ CONDITION_NAMES[row.condition] }}">{{ row.condition }}</span>{% endif %}

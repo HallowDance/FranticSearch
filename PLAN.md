@@ -89,6 +89,7 @@ Decided (2026-10-18, UI improvements, pulled forward from phase 6):
 - **Nav search** box on every page: jumps to the card on an exact (full or front-face) name match, preferring real cards over art-series cards; else shows the result list.
 - **Sortable columns** via `?sort=key` / `-key` on the collection, location and deck tables (whitelisted server-side).
 - **Deck page**: main deck grouped by type (first match of Creature, Planeswalker, Battle, Land, Instant, Sorcery, Artifact, Enchantment on the front face), shown Creatures → … → Lands; text mana curve over non-land main + commander cards.
+- **Text | Images view** on the collection, location, deck and Add pages: a grid of card images (lazy-loaded, with a copy-count badge; the deck keeps its type groups). The choice is remembered in the session for all card lists. Row actions (move, recount, remove, quick add, tick boxes) live in the text view only.
 - **Mana symbols** rendered as Scryfall's SVGs (hotlinked, like card images) in costs and oracle text; alt text keeps `{W}` for copy/paste.
 
 ## Import / migration from Moxfield

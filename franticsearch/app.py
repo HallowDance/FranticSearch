@@ -22,6 +22,9 @@ from .ledger import CONDITION_NAMES, CONDITIONS, FINISHES, LANGUAGES, LedgerErro
 
 log = logging.getLogger(__name__)
 
+# How card lists are shown: a text table (with actions) or a grid of card images.
+VIEWS = ("text", "images")
+
 # Default destination for collection imports (created on first use).
 UNSORTED = "Unsorted"
 
@@ -52,6 +55,8 @@ def create_app(config: dict | None = None) -> Flask:
     @app.before_request
     def _open_db() -> None:
         g.db = db.connect(app.config["DATABASE"])
+        if request.args.get("view") in VIEWS:  # card list view, remembered for the session
+            session["view"] = request.args["view"]
 
     @app.teardown_request
     def _close_db(_exc: BaseException | None) -> None:
@@ -72,6 +77,7 @@ def create_app(config: dict | None = None) -> Flask:
             "BOARD_NAMES": decks.BOARD_NAMES,
             "FORMATS": decks.FORMATS,
             "last_location": session.get("last_location"),
+            "view": session.get("view", "text"),
         }
 
     @app.template_filter("fromjson")

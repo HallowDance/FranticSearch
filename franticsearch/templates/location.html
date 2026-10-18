@@ -10,7 +10,12 @@
 {% set manual = loc.type != 'deck' %}
 {% if stock %}
 <p class="muted">{{ stock|sum(attribute='qty') }} copies, {{ stock|length }} line{{ '' if stock|length == 1 else 's' }}.
-{% if manual %}<a href="{{ url_for('location_view', location_id=loc.id, sort=sort, all='' if tick_all else '1') }}">{{ 'untick all' if tick_all else 'tick all' }}</a>{% endif %}</p>
+{% if manual and view == 'text' %}<a href="{{ url_for('location_view', location_id=loc.id, sort=sort, all='' if tick_all else '1') }}">{{ 'untick all' if tick_all else 'tick all' }}</a>{% endif %}</p>
+{{ m.view_switch() }}
+{% if view == 'images' %}
+<div class="cardgrid">{% for s in stock %}{{ m.card_tile(url_for('card', card_key=s.card_key, printing=s.printing_id), s.name, s.image, s.qty, s.set_code|upper ~ ' #' ~ s.collector_number ~ ('' if s.finish == 'nonfoil' else ' ' ~ s.finish)) }}{% endfor %}</div>
+{% if manual %}<p class="muted">Switch to the text view to move, recount or remove cards.</p>{% endif %}
+{% else %}
 <table class="grid">
 <tr>{% if manual %}<th></th>{% endif %}{{ m.sort_th('Card', 'name', sort) }}{{ m.sort_th('Cost', 'cost', sort) }}{{ m.sort_th('Printing', 'set', sort) }}{{ m.sort_th('Qty', 'qty', sort) }}{% if manual %}<th>Actions</th>{% endif %}</tr>
 {% for s in stock %}
@@ -31,6 +36,7 @@
 {% if dests %}Move all copies of the ticked lines to <select name="to_id" aria-label="move ticked to">{% for l in dests %}<option value="{{ l.id }}">{{ l.name }}</option>{% endfor %}</select> <button>Move ticked</button>
 {% else %}<span class="muted">Create another location to move cards in bulk.</span>{% endif %}
 </form>
+{% endif %}
 {% endif %}
 {% else %}<p class="muted">Empty.</p>{% endif %}
 

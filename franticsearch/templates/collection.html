@@ -17,6 +17,10 @@ Set <input name="set" value="{{ f.set_code }}" size="5" placeholder="e.g. c21">
 </form>
 <p class="muted">{{ total }} card{{ '' if total == 1 else 's' }} match.</p>
 {% if rows %}
+{{ m.view_switch() }}
+{% if view == 'images' %}
+<div class="cardgrid">{% for r in rows %}{{ m.card_tile(url_for('card', card_key=r.card_key), r.name, r.image, r.qty) }}{% endfor %}</div>
+{% else %}
 <table class="grid">
 <tr>{{ m.sort_th('Card', 'name', f.sort) }}{{ m.sort_th('Cost', 'cost', f.sort) }}{{ m.sort_th('Type', 'type', f.sort) }}{{ m.sort_th('Copies', 'qty', f.sort) }}{{ m.sort_th('Printings', 'printings', f.sort) }}<th>Locations</th></tr>
 {% for r in rows %}
@@ -30,6 +34,7 @@ Set <input name="set" value="{{ f.set_code }}" size="5" placeholder="e.g. c21">
 </tr>
 {% endfor %}
 </table>
+{% endif %}
 {% set pages = ((total + page_size - 1) // page_size) %}
 {% if pages > 1 %}
 <div class="pager">Page:

@@ -17,24 +17,33 @@
 <td class="num">{{ s.in_deck }}</td><td class="num">{{ s.free }}</td>
 <td>{{ s.free_where or '' }}</td><td class="num">{{ s.owned_any }}</td></tr>
 {%- endmacro %}
+{% macro tiles(rows) -%}
+<div class="cardgrid">{% for s in rows %}{{ m.card_tile(url_for('card', card_key=s.card_key, printing=s.printing_id), s.name, s.image, s.qty_wanted if s.qty_wanted > 1 else none) }}{% endfor %}</div>
+{%- endmacro %}
 {% macro board(b) -%}
 {% set rows = others[b] %}
 {% if rows %}
 <h2>{{ BOARD_NAMES[b] }} ({{ rows|sum(attribute='qty_wanted') }})</h2>
-<table class="grid">{{ slot_head() }}{% for s in rows %}{{ slot_row(s) }}{% endfor %}</table>
+{% if view == 'images' %}{{ tiles(rows) }}{% else %}
+<table class="grid">{{ slot_head() }}{% for s in rows %}{{ slot_row(s) }}{% endfor %}</table>{% endif %}
 {% endif %}
 {%- endmacro %}
 
+{{ m.view_switch() }}
 {{ board('commander') }}
 {% if groups %}
 {% set main_total = groups|map(attribute=1)|map('sum', attribute='qty_wanted')|sum %}
 <h2>Main ({{ main_total }})</h2>
+{% if view == 'images' %}
+{% for name, rows in groups %}<h3>{{ name }} ({{ rows|sum(attribute='qty_wanted') }})</h3>{{ tiles(rows) }}{% endfor %}
+{% else %}
 <table class="grid">{{ slot_head() }}
 {% for name, rows in groups %}
 <tr class="group"><th colspan="8">{{ name }} ({{ rows|sum(attribute='qty_wanted') }})</th></tr>
 {% for s in rows %}{{ slot_row(s) }}{% endfor %}
 {% endfor %}
 </table>
+{% endif %}
 {% set peak = curve|map(attribute=1)|max %}
 {% if peak %}
 <h2>Mana curve <span class="muted">(non-land cards, incl. commander)</span></h2>

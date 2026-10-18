@@ -201,3 +201,25 @@ def test_collection_sort_and_deck_groups(client, conn):
     assert b"Main (6)" in page and b"Creatures (1)" in page and b"Instants (4)" in page
     assert b"Artifacts (1)" in page and b"Mana curve" in page
     assert page.index(b"Creatures (1)") < page.index(b"Instants (4)") < page.index(b"Artifacts (1)")
+
+
+def test_view_switch_text_and_images(client, conn):
+    loc = locations.create(conn, "Binder A", "binder")
+    ledger.acquire(conn, loc, StockKey(SOL_C21), 3)
+    locations.create(conn, "Box B", "box")
+    client.post("/import/deck", data={"text": "2 Sol Ring (C21) 263\n1 Lightning Bolt", "name": "D", "format": ""})
+    deck_id = conn.execute("SELECT id FROM decks").fetchone()[0]
+    page = client.get(f"/locations/{loc}").data
+    assert b"<b>[Text]</b>" in page and b'class="tile"' not in page and b"Move ticked" in page
+    page = client.get(f"/locations/{loc}?view=images").data
+    assert b"<b>[Images]</b>" in page and b'class="tile"' in page and b"Move ticked" not in page
+    assert b'<span class="qty">3</span>' in page and b"C21 #263" in page
+    # remembered for the session, on every card list
+    for url in ["/collection", "/add?q=sol", f"/decks/{deck_id}"]:
+        assert b'class="tile"' in client.get(url).data, url
+    assert b"Instants (1)</h3>" in client.get(f"/decks/{deck_id}").data
+    assert b"Quick add" not in client.get("/add?q=sol").data
+    client.get("/collection?view=text")
+    assert b'class="tile"' not in client.get(f"/decks/{deck_id}").data
+    client.get("/collection?view=bogus")                       # ignored
+    assert b"<b>[Text]</b>" in client.get("/collection").data
