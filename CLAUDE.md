@@ -56,6 +56,5 @@ Keep domain logic framework-free (unit-testable) and the Flask layer thin.
 - **Phase 2 (import)** is merged. Deck import verified with both Moxfield text exports (plain, and with set codes: 100/100 resolved to the exact printings). The collection CSV parser is built from Moxfield's documented header only: **verify with a real export**.
 - Live Scryfall sync verified 2026-10-18 (CLI and gunicorn background auto-sync from an empty DB: status `idle`, 118,893 printings, check OK). Scryfall had dropped `download_uri` (JSON array) for `jsonl_download_uri` (gzipped JSONL); the importer handles both.
 - **Still unverified**: `docker compose up --build` itself (no container runtime on the dev machine). The Dockerfile's steps were replayed outside a container (non-editable install, its gunicorn CMD, all pages 200), so what remains is the image build and the `./data` volume.
-- Merged to `main`: phase 1, phase 2, reverse-proxy support (PR #3).
-- **UI improvements** (PLAN.md § 7 and § 6 undo) on branch `ui-improvements`: quick add, paste into location, move ticked, batch undo (migration 004), nav search, sortable columns, deck type groups + mana curve, mana symbols, Text | Images view. 58 tests pass.
+- Merged to `main`: PR #1 phase 1, #2 phase 2, #3 reverse-proxy support, #4 UI improvements (PLAN.md § 6 undo, § 7). 58 tests pass. PLAN.md § Phases has the per-phase status.
 - Next: Phase 3, card search (see PLAN.md § Phases).
