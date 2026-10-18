@@ -6,8 +6,8 @@ A self-hosted MTG collection & deck manager built around one idea: **every physi
 
 | Topic | Decision |
 |---|---|
-| Platform | Self-hosted web app, single user, SQLite; usable from desktop and phone browsers |
-| Access | **LAN only, no auth** for now. Proper hosting + auth later — keep a single auth hook (SvelteKit `handle`) so it can be added without touching routes |
+| Platform | Self-hosted web app for **a few users with separate collections** (from phase 2b; single user before), SQLite; usable from desktop and phone browsers |
+| Access | Phases 1–2: no auth (LAN, then nginx basic auth). From phase 2b: **in-app login**, enforced by a single auth hook (`before_request`) so routes don't each handle it. See § Users & sharing |
 | Deckbuilding | **In FranticSearch.** Decks are built and edited here; Moxfield deck import is for one-time migration only |
 | Copy model | Quantity per **printing key** per location. Key = Scryfall printing + finish + condition + language. Condition/language are optional and default to NM/EN — hidden in the UI unless set |
 | Locations | Flat, named, typed: `binder` · `box` · `deck` · `lent` · `other`. Each deck owns exactly one location |
@@ -15,7 +15,7 @@ A self-hosted MTG collection & deck manager built around one idea: **every physi
 | Contention | **Strict**: a copy is in exactly one place. If the needed copies are all in other decks, the slot is short |
 | Deck ↔ collection | **Pull/return workflow**: a deck is a target list; stock only moves when you confirm a physical move |
 | Extras in scope | Moxfield/CSV import · proxies & shortfall/buy list |
-| Out of scope (for now) | Prices, card scanning, multi-user, auth/public hosting, Moxfield re-sync |
+| Out of scope (for now) | Prices, card scanning, open sign-up / large-scale hosting, trades between users (later, see § Users & sharing), Moxfield re-sync |
 
 ## Data model
 
@@ -92,6 +92,23 @@ Decided (2026-10-18, UI improvements, pulled forward from phase 6):
 - **Text | Images view** on the collection, location, deck and Add pages: a grid of card images (lazy-loaded, with a copy-count badge; the deck keeps its type groups). The choice is remembered in the session for all card lists. Row actions (move, recount, remove, quick add, tick boxes) live in the text view only.
 - **Mana symbols** rendered as Scryfall's SVGs (hotlinked, like card images) in costs and oracle text; alt text keeps `{W}` for copy/paste.
 
+## Users & sharing (phase 2b)
+
+Decided 2026-10-18: a few people on one instance, each with a **separate collection**; locations (incl. decks) can be shared.
+
+- **Accounts**: created by the admin (`python -m franticsearch user add NAME [--admin]`, plus an admin page). No sign-up. Users change their own password. Passwords hashed with werkzeug (`scrypt`/`pbkdf2`).
+- **Login**: in-app login page and session cookie. Replaces the nginx basic-auth prompt once shipped. Login rate-limited (nginx `limit_req`). All POST forms carry a per-session CSRF token. Session cookie `HttpOnly`, `SameSite=Lax`, `Secure` behind HTTPS.
+- **Ownership**: `users` table; `locations.owner_id` (and `imports.owner_id`). Stock, movements and decks belong to a user through their locations.
+  - Location names are unique **per user**. This needs a table rebuild, since the unique constraint is global today.
+  - The ledger refuses moves between two users' locations until trades exist.
+  - Every route that takes a location / deck / import / queue line / batch id checks ownership, with tests per route. URL-guessing someone else's ids must 404.
+- **Existing data**: the first admin account created adopts all existing locations and imports.
+- **Shared card data**: `printings` and the Scryfall sync are global. The System page (sync, check) is admin-only.
+- **Visibility per location** (and so per deck, via its deck location): `private` (default) · `users` (any logged-in user) · `link` (anyone with an unguessable share URL `/s/<token>`, no login). Shared views are **read-only**: contents with quantities, the image view, the deck page. No history, notes or actions. A link can be revoked (new token).
+- **Discovery**: a "People" page lists users and their shared locations. Card pages show copies in other users' shared locations ("Alex: 2 in Trade binder").
+- **Per user**: last location, view mode, undo. Undo only for your own batches.
+- **Later: trades.** Moving copies from one user's location to another's as a confirmed two-sided action, a `trade` reason pair in both ledgers. The schema above doesn't block it.
+
 ## Import / migration from Moxfield
 
 1. **Collection CSV** (Moxfield export: Count, Name, Edition, Collector Number, Foil, Condition, Language…) → into a chosen location, default "Unsorted". Resolution by (set, collector number) → fallback (name, set) → unresolved queue for manual fix.
@@ -125,7 +142,8 @@ Domain logic (`ledger.py`, later pull/return planning and import parsing) is fra
 |---|---|---|---|
 | 1 | Foundation | Repo scaffold, Docker, schema + migrations, Scryfall sync, locations CRUD, stock + ledger with invariant check, collection browser, manual add/move/adjust | **Shipped** (PR #1). `docker compose up --build` itself not yet verified |
 | 2 | Import | Moxfield collection CSV, deck text import, unresolved queue | **Shipped** (PR #2). Collection CSV not yet tested with a real Moxfield export |
-| 3 | Card search | Local search over `printings` (name/type/text/colors/MV/set/legality), ownership-aware results | Next. Name search, nav search and quick add exist already |
+| 2b | Users & sharing | Accounts (admin-created), login + CSRF, per-user collections, ownership checks on every route, location visibility (private / users / link), People page, others' copies on card pages | Next (decided 2026-10-18, see § Users & sharing) |
+| 3 | Card search | Local search over `printings` (name/type/text/colors/MV/set/legality), ownership-aware results | After 2b. Name search, nav search and quick add exist already |
 | 4 | Decks | Deck editor (slots, boards, proxies, printing switch), live stats + legality, derived deck state, pull list, return list, "mark as built" | Partly: read-only deck page with type groups, mana curve, in-deck/free counts (PR #2, #4) |
 | 5 | Shortfalls | Proxies, cross-deck buy list, exports | Not started |
 | 6 | Polish | Batch undo, ledger views, mobile layout pass, backup/restore | Partly: batch undo shipped (PR #4) |
