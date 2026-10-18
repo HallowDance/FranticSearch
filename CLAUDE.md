@@ -60,5 +60,5 @@ Keep domain logic framework-free (unit-testable) and the Flask layer thin.
 - Live Scryfall sync verified 2026-10-18 (CLI and gunicorn background auto-sync from an empty DB: status `idle`, 118,893 printings, check OK). Scryfall had dropped `download_uri` (JSON array) for `jsonl_download_uri` (gzipped JSONL); the importer handles both.
 - **Still unverified**: `docker compose up --build` itself (no container runtime on the dev machine). The Dockerfile's steps were replayed outside a container (non-editable install, its gunicorn CMD, all pages 200), so what remains is the image build and the `./data` volume.
 - Merged to `main`: PR #1 phase 1, #2 phase 2, #3 reverse-proxy support, #4 UI improvements (PLAN.md § 6 undo, § 7), #5 plan.
-- **Phase 2b (users & sharing)** on branch `phase-2b`. 74 tests pass, incl. `tests/test_users.py` (isolation: another user's ids 404 on every route). PLAN.md § Phases has the per-phase status.
+- **Phase 2b (users & sharing)** merged (PR #6). **Location filters** on branch `location-filters` (PLAN.md § 7). 78 tests pass, incl. `tests/test_users.py` (isolation: another user's ids 404 on every route). PLAN.md § Phases has the per-phase status.
 - Next: Phase 3, card search (see PLAN.md § Phases).

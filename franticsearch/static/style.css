@@ -91,3 +91,5 @@ a.cardlink .peek { display: none; }
 .whoami form.inline { margin-left: 4px; }
 code { font-family: "Courier New", monospace; background: #f3f3ee; padding: 0 3px; }
 @media (max-width: 640px) { .whoami { float: none; display: block; margin-top: 4px; } }
+form.filters label { white-space: nowrap; margin-right: 6px; display: inline-block; margin-bottom: 3px; }
+form.filters select { max-width: 11em; }

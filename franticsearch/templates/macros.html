@@ -41,6 +41,34 @@
 {% else %}<p class="muted">Only you can see this.</p>{% endif %}
 {%- endmacro %}
 
+{# Filter form for a location's card list (GET; keeps the current sort). #}
+{% macro stock_filter(f, facets, shown, all_lines) -%}
+<form class="filters" method="get" action="{{ url_for(request.endpoint, **request.view_args) }}">
+<fieldset><legend>Filter</legend>
+<input type="hidden" name="sort" value="{{ request.args.get('sort', 'name') }}">
+<label>Name <input name="q" value="{{ f.q }}" size="14"></label>
+<label>Type <select name="type"><option value="">(any)</option>
+{% for t in facets.types %}<option {{ 'selected' if f.type == t }}>{{ t }}</option>{% endfor %}
+{% if facets.supertypes %}<optgroup label="Supertype">{% for t in facets.supertypes %}<option {{ 'selected' if f.type == t }}>{{ t }}</option>{% endfor %}</optgroup>{% endif %}
+</select></label>
+<label>Subtype <select name="subtype"><option value="">(any)</option>
+{% for t in facets.subtypes %}<option {{ 'selected' if f.subtype == t }}>{{ t }}</option>{% endfor %}</select></label>
+<label>Colour <select name="color"><option value="">(any)</option>
+{% for c, cname in COLORS.items() %}<option value="{{ c }}" {{ 'selected' if f.color == c }}>{{ cname }}</option>{% endfor %}</select></label>
+<label>MV <select name="mv"><option value="">(any)</option>
+{% for v in MANA_VALUES %}<option {{ 'selected' if f.mv == v }}>{{ v }}</option>{% endfor %}</select></label>
+<label>Set <select name="set"><option value="">(any)</option>
+{% for code, sname in facets.sets %}<option value="{{ code }}" {{ 'selected' if f.set == code }}>{{ sname }} ({{ code|upper }})</option>{% endfor %}</select></label>
+{% if facets.finishes|length > 1 or f.finish %}<label>Finish <select name="finish"><option value="">(any)</option>
+{% for fi in facets.finishes %}<option {{ 'selected' if f.finish == fi }}>{{ fi }}</option>{% endfor %}</select></label>{% endif %}
+<label>Qty &ge; <input type="number" name="min_qty" value="{{ f.min_qty or '' }}" min="1"></label>
+<button>Filter</button>
+{% if f.active() %}<a href="{{ url_for(request.endpoint, sort=request.args.get('sort', 'name'), **request.view_args) }}">reset</a>
+<span class="muted">showing {{ shown }} of {{ all_lines }} lines</span>{% endif %}
+</fieldset>
+</form>
+{%- endmacro %}
+
 {% macro key_tags(row) -%}
 {% if row.finish != 'nonfoil' %}<span class="tag">{{ row.finish }}</span>{% endif %}
 {% if row.condition != 'NM' %}<span class="tag" title="{{ CONDITION_NAMES[row.condition] }}">{{ row.condition }}</span>{% endif %}
