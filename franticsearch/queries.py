@@ -8,6 +8,7 @@ import sqlite3
 from dataclasses import dataclass, fields
 
 from . import cardtypes
+from .decks import FORMATS
 
 PAGE_SIZE = 100
 
@@ -247,6 +248,157 @@ def stock_facets(rows) -> dict:
         "types": sorted(types), "supertypes": sorted(supers), "subtypes": sorted(subs),
         "sets": sorted(sets.items(), key=lambda kv: kv[1].lower()), "finishes": sorted(finishes),
     }
+
+
+# --------------------------------------------------------------------------- card search (phase 3)
+
+SEARCH_PAGE = 50
+COLOR_FIELDS = {"colors": "colour", "identity": "colour identity"}
+COLOR_MODES = {"include": "including", "exact": "exactly", "atmost": "at most"}
+MV_OPS = {"=": "=", "<=": "≤", ">=": "≥"}
+SEARCH_SORTS = {
+    "name": ("MIN(p.name) COLLATE NOCASE", "card_key"),
+    "cost": ("MIN(p.cmc)", "MIN(p.name) COLLATE NOCASE"),
+    "owned": ("COALESCE(SUM(o.owned), 0)", "MIN(p.name) COLLATE NOCASE"),
+}
+
+
+def _fts_words(column: str, text: str) -> list[str]:
+    return [f'{column}:"{w}"*' for w in re.findall(r"\w+", text.lower())]
+
+
+@dataclass
+class CardSearch:
+    """Structured search over ``printings`` (PLAN.md § 5). Empty = no search."""
+    q: str = ""                 # name words (prefix); falls back to substring
+    type: str = ""              # words that must all appear in the type line
+    text: str = ""              # words that must all appear in the rules text
+    colors: str = ""            # letters from WUBRG, or "C" = colourless
+    color_mode: str = "include"
+    color_field: str = "colors"
+    mv_op: str = "="
+    mv: str = ""
+    set: str = ""
+    format: str = ""            # legal (or restricted) in this format
+    owned: str = ""             # "" | "owned" | "free" (owned outside decks)
+    sort: str = ""
+    page: int = 1
+
+    @classmethod
+    def from_args(cls, args) -> "CardSearch":
+        f = cls()
+        for fl in fields(cls):
+            if fl.name == "page":
+                try:
+                    f.page = max(1, int(args.get("page") or 1))
+                except ValueError:
+                    pass
+            elif fl.name == "colors":
+                f.colors = "".join(c for c in "WUBRGC" if c in args.getlist("c"))
+            elif args.get(fl.name):
+                setattr(f, fl.name, args.get(fl.name).strip())
+        return f
+
+    def active(self) -> bool:
+        return any((self.q, self.type, self.text, self.colors, self.mv, self.set, self.format,
+                    self.owned))
+
+    def where(self, substring_names: bool = False) -> tuple[str, list]:
+        clauses = ["p.digital = 0", "p.layout <> 'art_series'"]
+        args: list = []
+        if "token" not in self.type.lower():
+            clauses.append("p.layout NOT IN ('token', 'double_faced_token', 'emblem')")
+        match = _fts_words("oracle_text", self.text)
+        if self.q and not substring_names:
+            match += _fts_words("name", self.q)
+        elif self.q:
+            clauses.append("p.name LIKE ?")
+            args.append(f"%{self.q}%")
+        if match:
+            clauses.append("p.rowid IN (SELECT rowid FROM printings_fts WHERE printings_fts MATCH ?)")
+            args.append(" AND ".join(match))
+        for word in self.type.split():
+            clauses.append("p.type_line LIKE ?")
+            args.append(f"%{word}%")
+        col = "p.color_identity" if self.color_field == "identity" else "p.colors"
+        if "C" in self.colors:
+            clauses.append(f"{col} = '[]'")
+        elif self.colors:
+            for c in "WUBRG":
+                if c in self.colors and self.color_mode in ("include", "exact"):
+                    clauses.append(f"{col} LIKE '%\"{c}\"%'")
+                if c not in self.colors and self.color_mode in ("exact", "atmost"):
+                    clauses.append(f"{col} NOT LIKE '%\"{c}\"%'")
+        if self.mv:
+            try:
+                mv = float(self.mv)
+                clauses.append(f"COALESCE(p.cmc, 0) {self.mv_op if self.mv_op in MV_OPS else '='} ?")
+                args.append(mv)
+            except ValueError:
+                pass
+        if self.set:
+            clauses.append("p.set_code = ?")
+            args.append(self.set.lower())
+        if self.format in FORMATS and self.format:
+            clauses.append(f"json_extract(p.legalities, '$.{self.format}') IN ('legal', 'restricted')")
+        if self.owned == "owned":
+            clauses.append("o.owned > 0")
+        elif self.owned == "free":
+            clauses.append("o.free > 0")
+        return " AND ".join(clauses), args
+
+
+_OWNED_SQL = """LEFT JOIN (
+    SELECT s.printing_id, SUM(s.qty) AS owned,
+           SUM(CASE WHEN l.type <> 'deck' THEN s.qty ELSE 0 END) AS free
+      FROM stock s JOIN locations l ON l.id = s.location_id
+     WHERE l.owner_id = ? GROUP BY s.printing_id
+) o ON o.printing_id = p.scryfall_id"""
+
+
+def search(conn: sqlite3.Connection, f: CardSearch, owner: int) -> tuple[list[dict], int]:
+    """Cards matching ``f`` (one page), each with its matching printings and the
+    user's owned/free counts. Returns (cards, total matching cards)."""
+    if not f.active():
+        return [], 0
+
+    def run(substring: bool):
+        where, args = f.where(substring)
+        base = f"FROM printings p {_OWNED_SQL} WHERE {where}"
+        total = conn.execute(
+            f"SELECT COUNT(DISTINCT COALESCE(p.oracle_id, p.scryfall_id)) {base}", [owner, *args]
+        ).fetchone()[0]
+        return base, args, total
+
+    base, args, total = run(False)
+    if not total and f.q:                     # "fuzzy": no prefix match, try a substring
+        base, args, total = run(True)
+    if not total:
+        return [], 0
+    order = (order_by(SEARCH_SORTS, f.sort) if f.sort.lstrip("-") in SEARCH_SORTS
+             else "LENGTH(MIN(p.name)), MIN(p.name) COLLATE NOCASE" if f.q
+             else order_by(SEARCH_SORTS, "name"))
+    cards = [dict(r) for r in conn.execute(
+        f"""SELECT COALESCE(p.oracle_id, p.scryfall_id) AS card_key, MIN(p.name) AS name,
+                   MIN(p.type_line) AS type_line, MIN(p.mana_cost) AS mana_cost, MIN(p.cmc) AS cmc,
+                   MIN(p.image_normal) AS image, COUNT(*) AS n_printings,
+                   COALESCE(SUM(o.owned), 0) AS owned, COALESCE(SUM(o.free), 0) AS free
+            {base} GROUP BY card_key ORDER BY {order} LIMIT ? OFFSET ?""",
+        [owner, *args, SEARCH_PAGE, (f.page - 1) * SEARCH_PAGE],
+    )]
+    keys = [c["card_key"] for c in cards]
+    by_key: dict[str, list] = {k: [] for k in keys}
+    for r in conn.execute(
+        f"""SELECT p.*, COALESCE(p.oracle_id, p.scryfall_id) AS card_key,
+                   COALESCE(o.owned, 0) AS owned, COALESCE(o.free, 0) AS free
+            {base} AND COALESCE(p.oracle_id, p.scryfall_id) IN ({','.join('?' * len(keys))})
+            ORDER BY o.owned IS NULL, p.released_at DESC, p.set_code, p.collector_number""",
+        [owner, *args, *keys],
+    ):
+        by_key[r["card_key"]].append(r)
+    for c in cards:
+        c["printings"] = by_key[c["card_key"]]
+    return cards, total
 
 
 def search_cards(conn: sqlite3.Connection, text: str, limit: int = 30) -> list[sqlite3.Row]:

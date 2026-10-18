@@ -1,30 +1,58 @@
-{% extends "base.html" %}{% import "macros.html" as m with context %}{% block title %}Add cards{% endblock %}
+{% extends "base.html" %}{% import "macros.html" as m with context %}{% block title %}Search{% endblock %}
 {% block body %}
-<h1>Add cards</h1>
-<form method="get" action="{{ url_for('add') }}">
-<fieldset><legend>Find a card</legend>
-Name <input name="q" value="{{ q }}" size="32" autofocus> <button>Search</button>
+<h1>Search cards</h1>
+<form class="filters" method="get" action="{{ url_for('add') }}">
+<fieldset><legend>Find cards</legend>
+<label>Name <input name="q" value="{{ f.q }}" size="20" autofocus></label>
+<label>Type <input name="type" value="{{ f.type }}" size="16" placeholder="legendary elf"></label>
+<label>Text <input name="text" value="{{ f.text }}" size="20" placeholder="draw a card"></label><br>
+<span class="nowrap">{% for c, cname in COLORS.items() if c != 'M' %}<label title="{{ cname }}"><input type="checkbox" name="c" value="{{ c }}" {{ 'checked' if c in f.colors }}>{{ ('{' ~ c ~ '}')|mana }}</label>{% endfor %}</span>
+<select name="color_mode" aria-label="colour match">{% for k, v in COLOR_MODES.items() %}<option value="{{ k }}" {{ 'selected' if f.color_mode == k }}>{{ v }}</option>{% endfor %}</select>
+<select name="color_field" aria-label="colour or identity">{% for k, v in COLOR_FIELDS.items() %}<option value="{{ k }}" {{ 'selected' if f.color_field == k }}>{{ v }}</option>{% endfor %}</select>
+<label>MV <select name="mv_op" aria-label="mana value comparison">{% for k, v in MV_OPS.items() %}<option value="{{ k }}" {{ 'selected' if f.mv_op == k }}>{{ v }}</option>{% endfor %}</select><input type="number" name="mv" value="{{ f.mv }}" min="0" max="20" aria-label="mana value"></label>
+<label>Set <input name="set" value="{{ f.set }}" size="5" placeholder="voc"></label>
+<label>Legal in <select name="format"><option value="">(any)</option>{% for fmt in FORMATS if fmt %}<option {{ 'selected' if f.format == fmt }}>{{ fmt }}</option>{% endfor %}</select></label>
+<label>Show <select name="owned"><option value="">all cards</option><option value="owned" {{ 'selected' if f.owned == 'owned' }}>cards I own</option><option value="free" {{ 'selected' if f.owned == 'free' }}>I own, not in a deck</option></select></label>
+<button>Search</button> {% if f.active() %}<a href="{{ url_for('add') }}">reset</a>{% endif %}
 </fieldset>
 </form>
-{% if q %}
-{% if results %}
+{% if f.active() %}
+{% if cards %}
+<p class="muted">{{ total }} card{{ '' if total == 1 else 's' }}. Quick add uses your free printing if you have one, else the newest regular paper printing; expand <i>printings</i> or open a card for a specific one.</p>
 {{ m.view_switch() }}
 {% if view == 'images' %}
-<p class="muted">Pick a card to choose its printing and add it. Switch to the text view for quick add.</p>
-<div class="cardgrid">{% for r in results %}{{ m.card_tile(url_for('card', card_key=r.card_key) ~ '#add', r.name, r.image) }}{% endfor %}</div>
+<div class="cardgrid">{% for r in cards %}{{ m.card_tile(url_for('card', card_key=r.card_key) ~ '#add', r.name, r.image, r.owned or none) }}{% endfor %}</div>
 {% else %}
-<p class="muted">Quick add uses your free owned printing if you have one, else the newest regular paper printing. Open a card to choose the exact printing, finish, condition or language.</p>
 <table class="grid">
-<tr><th>Card</th><th>Cost</th><th>Type</th><th>Printings</th>{% if locs %}<th>Quick add</th>{% endif %}</tr>
-{% for r in results %}
-<tr><td>{{ m.card_link(url_for('card', card_key=r.card_key) ~ '#add', r.name, r.image) }}</td><td class="cost">{{ r.mana_cost|mana }}</td><td>{{ r.type_line or '' }}</td><td class="num">{{ r.printings }}</td>
+<tr>{{ m.sort_th('Card', 'name', f.sort) }}{{ m.sort_th('Cost', 'cost', f.sort) }}<th>Type</th>{{ m.sort_th('Owned', 'owned', f.sort) }}<th>Free</th><th>Printings</th>{% if locs %}<th>Quick add</th>{% endif %}</tr>
+{% for r in cards %}
+<tr><td>{{ m.card_link(url_for('card', card_key=r.card_key) ~ '#add', r.name, r.image) }}</td>
+<td class="cost">{{ r.mana_cost|mana }}</td><td>{{ r.type_line or '' }}</td>
+<td class="num">{{ r.owned or '' }}</td><td class="num">{{ r.free or '' }}</td>
+<td><details><summary>{{ r.printings|length }} printing{{ '' if r.printings|length == 1 else 's' }}</summary>
+<table class="grid inner">
+{% for p in r.printings[:25] %}<tr><td>{{ m.card_link(url_for('card', card_key=r.card_key, printing=p.scryfall_id) ~ '#add', p.set_code|upper ~ ' #' ~ p.collector_number, p.image_normal) }}</td>
+<td>{{ p.set_name }} ({{ (p.released_at or '')[:4] }})</td><td class="muted">{{ (p.finishes|fromjson)|join('/') }}</td>
+<td class="num" title="owned / free">{% if p.owned %}{{ p.owned }} / {{ p.free }}{% endif %}</td></tr>{% endfor %}
+</table>{% if r.printings|length > 25 %}<a href="{{ url_for('card', card_key=r.card_key) }}#add">all {{ r.printings|length }} printings on the card page</a>{% endif %}</details></td>
 {% if locs %}<td><form class="inline" method="post" action="{{ url_for('stock_quick_add') }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
 <input type="hidden" name="card_key" value="{{ r.card_key }}"><input type="hidden" name="next" value="{{ request.script_root ~ request.full_path }}">
-<input type="number" name="qty" value="1" min="1" aria-label="quantity"> &rarr; <select name="location_id" aria-label="location">{% for l in locs %}<option value="{{ l.id }}" {{ 'selected' if l.id == last_location }}>{{ l.name }}</option>{% endfor %}</select> <button>Add</button></form></td>{% endif %}</tr>
+<input type="number" name="qty" value="1" min="1" aria-label="quantity"> &rarr; <select name="location_id" aria-label="location">{% for l in locs %}<option value="{{ l.id }}" {{ 'selected' if l.id == last_location }}>{{ l.name }}</option>{% endfor %}</select> <button>Add</button></form></td>{% endif %}
+</tr>
 {% endfor %}
 </table>
 {% endif %}
+{% set pages = ((total + page_size - 1) // page_size) %}
+{% if pages > 1 %}
+<div class="pager">Page:
+{% for p in range(1, pages + 1) %}{% set pargs = request.args.to_dict(flat=false) %}{% set _ = pargs.update(page=p) %}
+{% if p == f.page %}<b>[{{ p }}]</b>{% elif p <= 3 or p > pages - 2 or (p - f.page)|abs <= 2 %}<a href="{{ url_for('add', **pargs) }}">{{ p }}</a>{% elif p == 4 or p == pages - 2 %}&hellip;{% endif %}
+{% endfor %}
+</div>
+{% endif %}
 {% if not locs %}<p class="muted">Create a <a href="{{ url_for('locations_list') }}">location</a> to enable quick add.</p>{% endif %}
-{% else %}<p>No card matches <b>{{ q }}</b>.</p>{% endif %}
+{% else %}<p>No cards match.</p>{% endif %}
+{% else %}
+<p class="muted">Fill in any field. Name and text match word beginnings (<i>sol ri</i>); type words must all appear (<i>legendary elf</i>). Colours: <i>including</i> = has at least these, <i>exactly</i> = these and no others, <i>at most</i> = no other colours (use colour identity for commander decks). Digital-only and art-series printings are left out; tokens show up when the type includes "token".</p>
 {% endif %}
 {% endblock %}

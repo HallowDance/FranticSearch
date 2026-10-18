@@ -108,6 +108,9 @@ def create_app(config: dict | None = None) -> Flask:
             "VISIBILITY_NAMES": locations.VISIBILITY_NAMES,
             "COLORS": queries.COLORS,
             "MANA_VALUES": queries.MANA_VALUES,
+            "COLOR_MODES": queries.COLOR_MODES,
+            "COLOR_FIELDS": queries.COLOR_FIELDS,
+            "MV_OPS": queries.MV_OPS,
         }
 
     @app.template_filter("fromjson")
@@ -359,16 +362,20 @@ def _register_routes(app: Flask) -> None:
 
     @app.get("/add")
     def add():
+        """Card search (phase 3), with quick add; ?go=1 is the nav box's jump-to-card."""
         q = request.args.get("q", "").strip()
-        results = queries.search_cards(g.db, q) if q else []
         if request.args.get("go"):  # nav search: straight to the card if it's unambiguous
+            results = queries.search_cards(g.db, q) if q else []
             exact = ([r for r in results if r["name"].lower() == q.lower()]
                      or [r for r in results if r["name"].split(" // ")[0].lower() == q.lower()])
             exact = [r for r in exact if r["layout"] != "art_series"] or exact
             hit = exact[0] if len(exact) == 1 else results[0] if len(results) == 1 else None
             if hit:
                 return redirect(url_for("card", card_key=hit["card_key"]))
-        return render_template("add.html", q=q, results=results, locs=_manual_locations(g.db))
+        f = queries.CardSearch.from_args(request.args)
+        cards, total = queries.search(g.db, f, _uid())
+        return render_template("add.html", f=f, cards=cards, total=total,
+                               page_size=queries.SEARCH_PAGE, locs=_manual_locations(g.db))
 
     @app.post("/stock/quick-add")
     def stock_quick_add():

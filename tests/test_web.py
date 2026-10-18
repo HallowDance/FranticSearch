@@ -220,8 +220,39 @@ def test_view_switch_text_and_images(client, conn):
     for url in ["/collection", "/add?q=sol", f"/decks/{deck_id}"]:
         assert b'class="tile"' in client.get(url).data, url
     assert b"Instants (1)</h3>" in client.get(f"/decks/{deck_id}").data
-    assert b"Quick add" not in client.get("/add?q=sol").data
+    assert b"/stock/quick-add" not in client.get("/add?q=sol").data
     client.get("/collection?view=text")
     assert b'class="tile"' not in client.get(f"/decks/{deck_id}").data
     client.get("/collection?view=bogus")                       # ignored
     assert b"<b>[Text]</b>" in client.get("/collection").data
+
+
+def test_card_search_filters(client, conn):
+    from franticsearch.queries import CardSearch, search
+    from werkzeug.datastructures import MultiDict
+    loc = locations.create(conn, "Binder A", "binder", owner=ALICE)
+    ledger.acquire(conn, loc, StockKey(SOL_CMM, "foil"), 2)
+    s = lambda **a: [c["name"] for c in search(conn, CardSearch.from_args(MultiDict(a)), ALICE)[0]]  # noqa: E731
+    assert s() == []                                          # empty form: no search
+    assert s(q="sol") == ["Sol Ring"]
+    assert s(q="ol rin") == ["Sol Ring"]                      # substring fallback
+    assert s(type="instant") == ["Lightning Bolt"]
+    assert s(type="human insect") == ["Delver of Secrets // Insectile Aberration"]   # back face words
+    assert s(text="damage") == ["Lightning Bolt"]
+    assert s(c=["R"]) == ["Lightning Bolt"]
+    assert s(c=["U"], color_mode="exact") == ["Delver of Secrets // Insectile Aberration"]
+    assert s(c=["U", "R"], color_mode="atmost", sort="name") == [   # colourless counts as "at most"
+        "Delver of Secrets // Insectile Aberration", "Lightning Bolt", "Sol Ring"]
+    assert s(c=["G"], color_mode="atmost") == ["Sol Ring"]
+    assert s(c=["C"]) == ["Sol Ring"]
+    assert s(mv="1", mv_op=">=", sort="name") == ["Delver of Secrets // Insectile Aberration", "Lightning Bolt", "Sol Ring"]
+    assert s(set="m10") == ["Lightning Bolt"]
+    assert len(s(format="commander")) == 3 and s(format="modern") == []   # fixture: commander only
+    assert s(owned="owned", type="artifact") == ["Sol Ring"] and s(owned="owned", type="instant") == []
+    (sol,) = search(conn, CardSearch.from_args(MultiDict({"q": "sol ring"})), ALICE)[0]
+    assert (sol["owned"], sol["free"], len(sol["printings"])) == (2, 2, 2)
+    assert sol["printings"][0]["scryfall_id"] == SOL_CMM       # owned printing listed first
+    page = client.get("/add?q=sol&type=artifact").data
+    assert b"1 card." in page and b"2 printings</summary>" in page and b"2 / 2" in page
+    assert b"/stock/quick-add" in page
+    assert b"No cards match" in client.get("/add?q=zzzz").data

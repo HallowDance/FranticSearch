@@ -75,6 +75,23 @@ Decks are built here, so the editor is a first-class screen:
 - Paste a decklist (Moxfield/MTGA text) into an existing deck as a bulk add.
 - Later: Scryfall query syntax subset (`t:`, `o:`, `c<=`, `mv=` …) on top of the structured filters.
 
+Card search as built (phase 3, 2026-10-18):
+- The Add-cards page became **Search** (`/add`; the nav box's `?go=1` still jumps to an exact name match).
+- Fields:
+  - name: FTS word prefixes; if nothing matches, a substring match as the "fuzzy" fallback (no typo tolerance without an SQLite extension)
+  - type-line words, all required
+  - rules-text words (FTS)
+  - colours or colour identity, *including / exactly / at most*, plus colourless; *at most* includes colourless, like Scryfall's `c<=`
+  - mana value `= ≤ ≥`
+  - set code
+  - legal (or restricted) in a format
+  - "cards I own" / "own, not in a deck"
+- Results are grouped by card, 50 per page, sortable by name / cost / owned.
+  - With a name, the shortest matching names come first.
+  - Each result shows owned and free counts, an expandable list of its matching printings (owned first, newest first, capped at 25 with a link to the card page), and quick add.
+- Left out by default: digital-only printings, art-series cards, and tokens/emblems unless the type includes "token".
+- `queries.CardSearch` / `queries.search` build one SQL query. Owned/free counts come from a per-user join on `stock`. Real data: 5–410 ms per page.
+
 ### 6. History & undo
 Ledger view per card, per location, per deck. Undo the last batch by writing compensating movements (never deleting rows).
 
@@ -83,7 +100,7 @@ Decided (2026-10-18, UI improvements, pulled forward from phase 6):
 - **Imports can't be undone** (yet): their records/hashes and queue would need unwinding too.
 
 ### 7. Quick entry & reorganising (UI improvements, 2026-10-18)
-- **Quick add** on the Add page: qty + location per search result, default printing as in deck import (free owned, else newest released paper). The last location used is remembered in the session and preselected (here and on the card page).
+- **Quick add** on the Add page (now Search): qty + location per search result, default printing as in deck import (free owned, else newest released paper). The last location used is remembered in the session and preselected (here and on the card page).
 - **Paste a list into a location**: Moxfield-style lines (count optional, `(SET) number`, `*F*`); default printing for lines without a set. Quick entry, not an import: no hash, no queue, recorded as `acquire`, undoable. Unmatched lines come back once, prefilled, with their problems.
 - **Move ticked**: checkboxes on a location page move *all copies* of the ticked lines to one non-deck location in one batch (partial moves stay on the per-row form). "tick all" is a link, no JS.
 - **Nav search** box on every page: jumps to the card on an exact (full or front-face) name match, preferring real cards over art-series cards; else shows the result list.
@@ -153,7 +170,7 @@ Domain logic (`ledger.py`, later pull/return planning and import parsing) is fra
 | 1 | Foundation | Repo scaffold, Docker, schema + migrations, Scryfall sync, locations CRUD, stock + ledger with invariant check, collection browser, manual add/move/adjust | **Shipped** (PR #1). `docker compose up --build` itself not yet verified |
 | 2 | Import | Moxfield collection CSV, deck text import, unresolved queue | **Shipped** (PR #2). Collection CSV verified with a real Moxfield export on 2026-10-18 (337 rows, 0 unresolved) |
 | 2b | Users & sharing | Accounts (admin-created), login + CSRF, per-user collections, ownership checks on every route, location visibility (private / users / link), People page, others' copies on card pages | **Shipped** (PR #6) |
-| 3 | Card search | Local search over `printings` (name/type/text/colors/MV/set/legality), ownership-aware results | Next. Name search, nav search and quick add exist already |
+| 3 | Card search | Local search over `printings` (name/type/text/colors/MV/set/legality), ownership-aware results | **Shipped** (branch `phase-3`) |
 | 4 | Decks | Deck editor (slots, boards, proxies, printing switch), live stats + legality, derived deck state, pull list, return list, "mark as built" | Partly: read-only deck page with type groups, mana curve, in-deck/free counts (PR #2, #4) |
 | 5 | Shortfalls | Proxies, cross-deck buy list, exports | Not started |
 | 6 | Polish | Batch undo, ledger views, mobile layout pass, backup/restore | Partly: batch undo shipped (PR #4) |
