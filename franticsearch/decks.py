@@ -97,6 +97,7 @@ def slots(conn: sqlite3.Connection, deck_id: int) -> list[sqlite3.Row]:
     """
     return conn.execute(
         """SELECT ds.*, p.name, p.set_code, p.collector_number, p.type_line, p.mana_cost, p.cmc,
+                  p.image_normal AS image,
                   COALESCE(p.oracle_id, p.scryfall_id) AS card_key,
                   (SELECT COALESCE(SUM(s.qty), 0) FROM stock s
                     WHERE s.location_id = d.location_id AND s.printing_id = ds.printing_id

@@ -18,7 +18,7 @@
 <tr><th>Printing</th><th>Location</th><th>Qty</th><th>Actions</th></tr>
 {% for s in stock %}
 <tr>
-<td><a href="{{ url_for('card', card_key=card_key, printing=s.printing_id) }}">{{ s.set_code|upper }} #{{ s.collector_number }}</a> {{ m.key_tags(s) }}</td>
+<td>{{ m.card_link(url_for('card', card_key=card_key, printing=s.printing_id), s.set_code|upper ~ ' #' ~ s.collector_number, s.image) }} {{ m.key_tags(s) }}</td>
 <td><a href="{{ url_for('location_view', location_id=s.location_id) }}">{{ s.location_name }}</a> <span class="muted">({{ s.location_type }})</span></td>
 <td class="num">{{ s.qty }}</td>
 <td>{% if s.location_type == 'deck' %}<span class="muted">use the deck's pull/return lists</span>{% else %}{{ m.stock_actions(s, locs) }}{% endif %}</td>

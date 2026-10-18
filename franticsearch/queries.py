@@ -64,7 +64,7 @@ def collection(conn: sqlite3.Connection, f: CollectionFilter) -> tuple[list[sqli
     rows = conn.execute(
         f"""SELECT COALESCE(p.oracle_id, p.scryfall_id) AS card_key,
                    MIN(p.name) AS name, MIN(p.type_line) AS type_line,
-                   MIN(p.mana_cost) AS mana_cost,
+                   MIN(p.mana_cost) AS mana_cost, MIN(p.image_normal) AS image,
                    SUM(s.qty) AS qty,
                    COUNT(DISTINCT p.scryfall_id) AS printings,
                    GROUP_CONCAT(DISTINCT l.name) AS locations
@@ -101,7 +101,7 @@ def card_printings(conn: sqlite3.Connection, card_key: str) -> list[sqlite3.Row]
 def card_stock(conn: sqlite3.Connection, card_key: str) -> list[sqlite3.Row]:
     return conn.execute(
         """SELECT s.*, l.name AS location_name, l.type AS location_type,
-                  p.set_code, p.set_name, p.collector_number, p.name
+                  p.set_code, p.set_name, p.collector_number, p.name, p.image_normal AS image
              FROM stock s
              JOIN printings p ON p.scryfall_id = s.printing_id
              JOIN locations l ON l.id = s.location_id
@@ -114,7 +114,7 @@ def card_stock(conn: sqlite3.Connection, card_key: str) -> list[sqlite3.Row]:
 
 def location_stock(conn: sqlite3.Connection, location_id: int) -> list[sqlite3.Row]:
     return conn.execute(
-        """SELECT s.*, p.name, p.set_code, p.collector_number, p.type_line,
+        """SELECT s.*, p.name, p.set_code, p.collector_number, p.type_line, p.image_normal AS image,
                   COALESCE(p.oracle_id, p.scryfall_id) AS card_key
              FROM stock s JOIN printings p ON p.scryfall_id = s.printing_id
             WHERE s.location_id = ?
@@ -131,7 +131,8 @@ def search_cards(conn: sqlite3.Connection, text: str, limit: int = 30) -> list[s
     return conn.execute(
         """SELECT COALESCE(p.oracle_id, p.scryfall_id) AS card_key,
                   MIN(p.name) AS name, MIN(p.type_line) AS type_line,
-                  MIN(p.mana_cost) AS mana_cost, COUNT(*) AS printings
+                  MIN(p.mana_cost) AS mana_cost, COUNT(*) AS printings,
+                  MIN(p.image_normal) AS image
              FROM printings p
             WHERE p.rowid IN (SELECT rowid FROM printings_fts WHERE printings_fts MATCH ?)
             GROUP BY card_key
@@ -156,7 +157,7 @@ def history(
         args += [card_key, card_key]
     where = " AND ".join(clauses) or "1"
     return conn.execute(
-        f"""SELECT m.*, p.name, p.set_code, p.collector_number,
+        f"""SELECT m.*, p.name, p.set_code, p.collector_number, p.image_normal AS image,
                    COALESCE(p.oracle_id, p.scryfall_id) AS card_key,
                    fl.name AS from_name, tl.name AS to_name
               FROM movements m

@@ -1,4 +1,9 @@
-{# Shared bits: stock key display, hidden key fields, per-row stock actions. #}
+{# Shared bits: card links, stock key display, hidden key fields, per-row stock actions. #}
+{# A card link that shows the card image while hovered (CSS only; lazy, so it loads on first hover). #}
+{% macro card_link(href, text, image) -%}
+<a class="cardlink" href="{{ href }}">{{ text }}{% if image %}<img class="peek" src="{{ image }}" alt="" loading="lazy">{% endif %}</a>
+{%- endmacro %}
+
 {% macro key_tags(row) -%}
 {% if row.finish != 'nonfoil' %}<span class="tag">{{ row.finish }}</span>{% endif %}
 {% if row.condition != 'NM' %}<span class="tag" title="{{ CONDITION_NAMES[row.condition] }}">{{ row.condition }}</span>{% endif %}
@@ -33,7 +38,7 @@
 <td class="mono">{{ m.ts[:16].replace('T', ' ') }}</td>
 <td>{{ m.reason }}</td>
 <td class="num">{{ m.qty }}</td>
-<td><a href="{{ url_for('card', card_key=m.card_key) }}">{{ m.name }}</a> <span class="muted">{{ m.set_code|upper }} #{{ m.collector_number }}</span> {{ key_tags(m) }}</td>
+<td>{{ card_link(url_for('card', card_key=m.card_key), m.name, m.image) }} <span class="muted">{{ m.set_code|upper }} #{{ m.collector_number }}</span> {{ key_tags(m) }}</td>
 <td>{% if m.from_location_id %}<a href="{{ url_for('location_view', location_id=m.from_location_id) }}">{{ m.from_name }}</a>{% else %}<span class="muted">(outside)</span>{% endif %}</td>
 <td>{% if m.to_location_id %}<a href="{{ url_for('location_view', location_id=m.to_location_id) }}">{{ m.to_name }}</a>{% else %}<span class="muted">(outside)</span>{% endif %}</td>
 <td>{{ m.note }}</td>

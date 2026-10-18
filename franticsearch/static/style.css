@@ -49,6 +49,16 @@ details summary { cursor: pointer; color: var(--link); }
 .oracle { white-space: pre-line; max-width: 46em; }
 .pager { margin: 6px 0; }
 .clear { clear: both; }
+/* Card image on hover (no JS). Hidden images with loading=lazy are only fetched once shown. */
+a.cardlink { position: relative; }
+a.cardlink .peek { display: none; }
+@media (hover: hover) {
+  a.cardlink:hover .peek {
+    display: block; position: absolute; left: 100%; top: -60px; margin-left: 16px; z-index: 10;
+    width: 244px; border-radius: 10px; border: 1px solid var(--rule);
+    box-shadow: 3px 3px 8px rgba(0, 0, 0, .45); pointer-events: none;
+  }
+}
 @media (max-width: 640px) {
   .cardbox { float: none; margin: 0 0 10px; } .cardbox img { width: 180px; }
   #main { margin: 4px; padding: 8px; }

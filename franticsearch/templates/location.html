@@ -12,7 +12,7 @@
 <tr><th>Card</th><th>Printing</th><th>Qty</th>{% if loc.type != 'deck' %}<th>Actions</th>{% endif %}</tr>
 {% for s in stock %}
 <tr>
-<td><a href="{{ url_for('card', card_key=s.card_key, printing=s.printing_id) }}">{{ s.name }}</a></td>
+<td>{{ m.card_link(url_for('card', card_key=s.card_key, printing=s.printing_id), s.name, s.image) }}</td>
 <td>{{ s.set_code|upper }} #{{ s.collector_number }} {{ m.key_tags(s) }}</td>
 <td class="num">{{ s.qty }}</td>
 {% if loc.type != 'deck' %}<td>{{ m.stock_actions(s, locs) }}</td>{% endif %}

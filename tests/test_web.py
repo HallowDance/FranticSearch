@@ -106,3 +106,14 @@ def test_collection_csv_upload_creates_unsorted(client, conn):
     assert b"already imported" in r.data
     assert conn.execute("SELECT COUNT(*) FROM locations").fetchone()[0] == 1
     assert ledger.check(conn) == []
+
+
+def test_card_links_carry_hover_image(client, conn):
+    loc = locations.create(conn, "Binder A", "binder")
+    ledger.acquire(conn, loc, StockKey(SOL_C21), 1)
+    client.post("/import/deck", data={"text": "1 Sol Ring (C21) 263", "name": "D", "format": ""})
+    deck_id = conn.execute("SELECT id FROM decks").fetchone()[0]
+    peek = b'class="peek" src="https://cards.scryfall.io/normal/x.jpg"'
+    for url in ["/collection", "/add?q=sol", f"/locations/{loc}", "/history", f"/decks/{deck_id}",
+                f"/card/{SOL_ORACLE}"]:
+        assert peek in client.get(url).data, url
