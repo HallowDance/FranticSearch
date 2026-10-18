@@ -4,6 +4,13 @@
 <a class="cardlink" href="{{ href }}">{{ text }}{% if image %}<img class="peek" src="{{ image }}" alt="" loading="lazy">{% endif %}</a>
 {%- endmacro %}
 
+{# Column header that sorts the current page by `key` (click again to reverse). #}
+{% macro sort_th(label, key, current) -%}
+{% set desc = current == key %}
+{% set args = request.args.to_dict() %}{% set _ = args.update(sort=('-' ~ key if desc else key), page=1) %}{% set _ = args.pop('all', None) %}{% set _ = args.update(request.view_args) %}
+<th><a class="sort" href="{{ url_for(request.endpoint, **args) }}">{{ label }}</a>{% if current == key %} &#9650;{% elif current == '-' ~ key %} &#9660;{% endif %}</th>
+{%- endmacro %}
+
 {% macro key_tags(row) -%}
 {% if row.finish != 'nonfoil' %}<span class="tag">{{ row.finish }}</span>{% endif %}
 {% if row.condition != 'NM' %}<span class="tag" title="{{ CONDITION_NAMES[row.condition] }}">{{ row.condition }}</span>{% endif %}
@@ -33,8 +40,8 @@
 <input type="number" name="qty" value="1" min="1" max="{{ row.qty }}" aria-label="quantity to remove"> <button class="danger" title="Sold, traded away or lost">Remove</button></form>
 {%- endmacro %}
 
-{% macro movement_row(m) -%}
-<tr>
+{% macro movement_row(m, undo_col=false, first_of_batch=false) -%}
+<tr>{% if undo_col %}<td>{% if first_of_batch %}{% if m.undone %}<span class="muted">undone</span>{% elif not m.undo_of and m.reason != 'import' %}<form class="inline" method="post" action="{{ url_for('undo') }}"><input type="hidden" name="batch" value="{{ m.batch_id }}"><input type="hidden" name="next" value="{{ request.script_root ~ request.full_path }}"><button title="Reverse this whole action">Undo</button></form>{% endif %}{% endif %}</td>{% endif %}
 <td class="mono">{{ m.ts[:16].replace('T', ' ') }}</td>
 <td>{{ m.reason }}</td>
 <td class="num">{{ m.qty }}</td>
@@ -45,6 +52,6 @@
 </tr>
 {%- endmacro %}
 
-{% macro movement_head() -%}
-<tr><th>When (UTC)</th><th>Reason</th><th>Qty</th><th>Card</th><th>From</th><th>To</th><th>Note</th></tr>
+{% macro movement_head(undo_col=false) -%}
+<tr>{% if undo_col %}<th></th>{% endif %}<th>When (UTC)</th><th>Reason</th><th>Qty</th><th>Card</th><th>From</th><th>To</th><th>Note</th></tr>
 {%- endmacro %}

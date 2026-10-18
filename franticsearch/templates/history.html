@@ -8,7 +8,8 @@ Location <select name="location"><option value="">(any)</option>
 </select> <button>Filter</button>
 </form>
 {% if rows %}
-<table class="grid">{{ m.movement_head() }}{% for h in rows %}{{ m.movement_row(h) }}{% endfor %}</table>
+<table class="grid">{{ m.movement_head(true) }}{% for h in rows %}{{ m.movement_row(h, true, loop.first or rows[loop.index0 - 1].batch_id != h.batch_id) }}{% endfor %}</table>
+<p class="muted">Undo reverses a whole action (all its lines) by recording opposite movements; it fails if the cards have moved on since. Imports can't be undone.</p>
 <div class="pager">
 {% if page > 1 %}<a href="{{ url_for('history', location=location or '', page=page - 1) }}">&laquo; newer</a>{% endif %}
 {% if rows|length == page_size %}<a href="{{ url_for('history', location=location or '', page=page + 1) }}">older &raquo;</a>{% endif %}

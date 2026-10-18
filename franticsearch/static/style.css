@@ -49,6 +49,14 @@ details summary { cursor: pointer; color: var(--link); }
 .oracle { white-space: pre-line; max-width: 46em; }
 .pager { margin: 6px 0; }
 .clear { clear: both; }
+/* Mana symbols (Scryfall SVGs) */
+img.sym { height: 1.05em; width: 1.05em; vertical-align: -0.15em; margin: 0 1px; }
+td.cost { white-space: nowrap; }
+a.sort { color: inherit; }
+tr.group th { background: #f6f4ea; font-style: italic; }
+table.curve td.bar { font-size: 10px; letter-spacing: -1px; color: var(--head); }
+form.navsearch { display: inline-block; margin: 0 0 0 8px; }
+form.flash.undo { display: block; }
 /* Card image on hover (no JS). Hidden images with loading=lazy are only fetched once shown. */
 a.cardlink { position: relative; }
 a.cardlink .peek { display: none; }

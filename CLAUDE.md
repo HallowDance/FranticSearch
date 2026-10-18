@@ -29,7 +29,7 @@ Env: `FS_DB` (default `data/franticsearch.db`), `FS_AUTO_SYNC` (default `1`), `F
 |---|---|
 | `franticsearch/migrations/NNN_*.sql` | Schema. Append a new numbered file for every change; never edit applied ones. Version in `PRAGMA user_version`. |
 | `franticsearch/db.py` | Connections (WAL, FKs on, autocommit + explicit `transaction()`), migration runner, `meta` key/value helpers |
-| `franticsearch/ledger.py` | **The only code that changes `stock`.** acquire / move / adjust / sell write stock + a `movements` row in one transaction; `check()` verifies the invariant |
+| `franticsearch/ledger.py` | **The only code that changes `stock`.** acquire(_many) / move(_many) / adjust / sell / undo write stock + `movements` rows in one transaction; `check()` verifies the invariant |
 | `franticsearch/locations.py` | Location CRUD, archive/unarchive |
 | `franticsearch/decks.py` | Deck + its deck location, slots, read-only slot view, delete |
 | `franticsearch/importer.py` | Moxfield deck text / collection CSV: parse → resolve (set+cn → name+set → default printing) → import; unresolved queue fix/dismiss |
@@ -53,7 +53,9 @@ Keep domain logic framework-free (unit-testable) and the Flask layer thin.
 ## Status
 
 - **Phase 1 (foundation)** is implemented on branch `phase-1`, PR #1.
-- **Phase 2 (import)** is on branch `phase-2` (branched from `phase-1`). 49 tests pass. Deck import verified with both Moxfield text exports (plain, and with set codes: 100/100 resolved to the exact printings). The collection CSV parser is built from Moxfield's documented header only: **verify with a real export**.
+- **Phase 2 (import)** is merged. Deck import verified with both Moxfield text exports (plain, and with set codes: 100/100 resolved to the exact printings). The collection CSV parser is built from Moxfield's documented header only: **verify with a real export**.
 - Live Scryfall sync verified 2026-10-18 (CLI and gunicorn background auto-sync from an empty DB: status `idle`, 118,893 printings, check OK). Scryfall had dropped `download_uri` (JSON array) for `jsonl_download_uri` (gzipped JSONL); the importer handles both.
 - **Still unverified**: `docker compose up --build` itself (no container runtime on the dev machine). The Dockerfile's steps were replayed outside a container (non-editable install, its gunicorn CMD, all pages 200), so what remains is the image build and the `./data` volume.
+- Merged to `main`: phase 1, phase 2, reverse-proxy support (PR #3).
+- **UI improvements** (PLAN.md § 7 and § 6 undo) on branch `ui-improvements`: quick add, paste into location, move ticked, batch undo (migration 004), nav search, sortable columns, deck type groups + mana curve, mana symbols. 57 tests pass.
 - Next: Phase 3, card search (see PLAN.md § Phases).

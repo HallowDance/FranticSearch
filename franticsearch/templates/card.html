@@ -7,9 +7,9 @@
 </div>
 <h1>{{ shown.name }}</h1>
 <table class="kv">
-<tr><th>Cost</th><td class="mono">{{ shown.mana_cost or '-' }}</td></tr>
+<tr><th>Cost</th><td class="cost">{{ shown.mana_cost|mana if shown.mana_cost else '-' }}</td></tr>
 <tr><th>Type</th><td>{{ shown.type_line or '' }}</td></tr>
-<tr><th>Text</th><td class="oracle">{{ shown.oracle_text or '' }}</td></tr>
+<tr><th>Text</th><td class="oracle">{{ shown.oracle_text|mana }}</td></tr>
 </table>
 
 <h2>Your copies</h2>
@@ -37,7 +37,7 @@
 </select></td></tr>
 <tr><th>Finish</th><td><select name="finish">{% for fi in FINISHES %}<option>{{ fi }}</option>{% endfor %}</select> <span class="muted">must be one the printing exists in</span></td></tr>
 <tr><th>Quantity</th><td><input type="number" name="qty" value="1" min="1"></td></tr>
-<tr><th>Location</th><td><select name="location_id">{% for l in locs %}<option value="{{ l.id }}">{{ l.name }}</option>{% endfor %}</select></td></tr>
+<tr><th>Location</th><td><select name="location_id">{% for l in locs %}<option value="{{ l.id }}" {{ 'selected' if l.id == last_location }}>{{ l.name }}</option>{% endfor %}</select></td></tr>
 <tr><th>Note</th><td><input name="note" size="40" placeholder="optional, e.g. bought at LGS"></td></tr>
 <tr><th></th><td><details><summary>Condition / language</summary>
 Condition <select name="condition">{% for c in CONDITIONS %}<option value="{{ c }}">{{ c }} &ndash; {{ CONDITION_NAMES[c] }}</option>{% endfor %}</select>

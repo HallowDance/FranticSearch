@@ -74,6 +74,40 @@ def get(conn: sqlite3.Connection, deck_id: int) -> sqlite3.Row | None:
     return conn.execute("SELECT * FROM decks WHERE id = ?", (deck_id,)).fetchone()
 
 
+# Card-type groups for the deck page, in display order. A card goes into the
+# first group whose type appears in its (front face) type line.
+TYPE_GROUPS = (
+    ("Creature", "Creatures"), ("Planeswalker", "Planeswalkers"), ("Battle", "Battles"),
+    ("Land", "Lands"), ("Instant", "Instants"), ("Sorcery", "Sorceries"),
+    ("Artifact", "Artifacts"), ("Enchantment", "Enchantments"),
+)
+_GROUP_ORDER = ("Creatures", "Planeswalkers", "Battles", "Instants", "Sorceries",
+                "Artifacts", "Enchantments", "Lands", "Other")
+
+
+def type_group(type_line: str | None) -> str:
+    front = (type_line or "").split(" // ")[0]
+    return next((group for t, group in TYPE_GROUPS if t in front), "Other")
+
+
+def grouped(slots: list, sort_key=None) -> list[tuple[str, list]]:
+    """[(group name, slots)] in display order; each group sorted by ``sort_key``."""
+    groups: dict[str, list] = {}
+    for s in slots:
+        groups.setdefault(type_group(s["type_line"]), []).append(s)
+    return [(g, sorted(groups[g], key=sort_key) if sort_key else groups[g])
+            for g in _GROUP_ORDER if g in groups]
+
+
+def mana_curve(slots: list) -> list[tuple[str, int]]:
+    """Copies per mana value (0..6, "7+") over non-land cards."""
+    counts = [0] * 8
+    for s in slots:
+        if type_group(s["type_line"]) != "Lands":
+            counts[min(int(s["cmc"] or 0), 7)] += s["qty_wanted"]
+    return [(str(i) if i < 7 else "7+", n) for i, n in enumerate(counts)]
+
+
 def by_location(conn: sqlite3.Connection, location_id: int) -> sqlite3.Row | None:
     return conn.execute("SELECT * FROM decks WHERE location_id = ?", (location_id,)).fetchone()
 

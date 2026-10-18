@@ -8,6 +8,30 @@ from dataclasses import dataclass
 
 PAGE_SIZE = 100
 
+# Sortable columns: key -> (primary ORDER BY term, tie-breaker). "-key" sorts descending.
+COLLECTION_SORTS = {
+    "name": ("name COLLATE NOCASE", "card_key"),
+    "cost": ("MIN(p.cmc)", "name COLLATE NOCASE"),
+    "type": ("MIN(p.type_line) COLLATE NOCASE", "name COLLATE NOCASE"),
+    "qty": ("SUM(s.qty)", "name COLLATE NOCASE"),
+    "printings": ("COUNT(DISTINCT p.scryfall_id)", "name COLLATE NOCASE"),
+}
+LOCATION_SORTS = {
+    "name": ("p.name COLLATE NOCASE", "p.set_code, p.collector_number"),
+    "set": ("p.set_code", "p.collector_number, p.name COLLATE NOCASE"),
+    "cost": ("p.cmc", "p.name COLLATE NOCASE"),
+    "qty": ("s.qty", "p.name COLLATE NOCASE"),
+}
+
+
+def order_by(sorts: dict[str, tuple[str, str]], sort: str, default: str = "name") -> str:
+    """Whitelisted ORDER BY clause for a ``sort`` parameter like "qty" or "-qty"."""
+    key = sort.lstrip("-")
+    if key not in sorts:
+        key, sort = default, default
+    primary, tie = sorts[key]
+    return f"{primary}{' DESC' if sort.startswith('-') else ''}, {tie}"
+
 
 def fts_query(text: str) -> str | None:
     """Turn free text into a safe FTS5 prefix query on the name column."""
@@ -25,6 +49,7 @@ class CollectionFilter:
     not_in_deck: bool = False
     set_code: str = ""
     page: int = 1
+    sort: str = "name"
 
     def where(self) -> tuple[str, list]:
         clauses, args = [], []
@@ -64,13 +89,13 @@ def collection(conn: sqlite3.Connection, f: CollectionFilter) -> tuple[list[sqli
     rows = conn.execute(
         f"""SELECT COALESCE(p.oracle_id, p.scryfall_id) AS card_key,
                    MIN(p.name) AS name, MIN(p.type_line) AS type_line,
-                   MIN(p.mana_cost) AS mana_cost, MIN(p.image_normal) AS image,
+                   MIN(p.mana_cost) AS mana_cost, MIN(p.image_normal) AS image, MIN(p.cmc) AS cmc,
                    SUM(s.qty) AS qty,
                    COUNT(DISTINCT p.scryfall_id) AS printings,
                    GROUP_CONCAT(DISTINCT l.name) AS locations
             {base}
             GROUP BY card_key
-            ORDER BY name COLLATE NOCASE
+            ORDER BY {order_by(COLLECTION_SORTS, f.sort)}
             LIMIT ? OFFSET ?""",
         [*args, PAGE_SIZE, (max(f.page, 1) - 1) * PAGE_SIZE],
     ).fetchall()
@@ -112,13 +137,13 @@ def card_stock(conn: sqlite3.Connection, card_key: str) -> list[sqlite3.Row]:
     ).fetchall()
 
 
-def location_stock(conn: sqlite3.Connection, location_id: int) -> list[sqlite3.Row]:
+def location_stock(conn: sqlite3.Connection, location_id: int, sort: str = "name") -> list[sqlite3.Row]:
     return conn.execute(
-        """SELECT s.*, p.name, p.set_code, p.collector_number, p.type_line, p.image_normal AS image,
-                  COALESCE(p.oracle_id, p.scryfall_id) AS card_key
-             FROM stock s JOIN printings p ON p.scryfall_id = s.printing_id
-            WHERE s.location_id = ?
-            ORDER BY p.name COLLATE NOCASE, p.set_code, p.collector_number""",
+        f"""SELECT s.*, p.name, p.set_code, p.collector_number, p.type_line, p.image_normal AS image,
+                   p.mana_cost, p.cmc, COALESCE(p.oracle_id, p.scryfall_id) AS card_key
+              FROM stock s JOIN printings p ON p.scryfall_id = s.printing_id
+             WHERE s.location_id = ?
+             ORDER BY {order_by(LOCATION_SORTS, sort)}""",
         (location_id,),
     ).fetchall()
 
@@ -132,7 +157,7 @@ def search_cards(conn: sqlite3.Connection, text: str, limit: int = 30) -> list[s
         """SELECT COALESCE(p.oracle_id, p.scryfall_id) AS card_key,
                   MIN(p.name) AS name, MIN(p.type_line) AS type_line,
                   MIN(p.mana_cost) AS mana_cost, COUNT(*) AS printings,
-                  MIN(p.image_normal) AS image
+                  MIN(p.image_normal) AS image, MIN(p.layout) AS layout
              FROM printings p
             WHERE p.rowid IN (SELECT rowid FROM printings_fts WHERE printings_fts MATCH ?)
             GROUP BY card_key
@@ -159,7 +184,8 @@ def history(
     return conn.execute(
         f"""SELECT m.*, p.name, p.set_code, p.collector_number, p.image_normal AS image,
                    COALESCE(p.oracle_id, p.scryfall_id) AS card_key,
-                   fl.name AS from_name, tl.name AS to_name
+                   fl.name AS from_name, tl.name AS to_name,
+                   EXISTS(SELECT 1 FROM movements u WHERE u.undo_of = m.batch_id) AS undone
               FROM movements m
               JOIN printings p ON p.scryfall_id = m.printing_id
               LEFT JOIN locations fl ON fl.id = m.from_location_id
