@@ -13,7 +13,7 @@
 {% if user %}
 <a href="{{ url_for('index') }}" class="{{ 'on' if ep == 'index' }}">Overview</a>
 <a href="{{ url_for('collection') }}" class="{{ 'on' if ep in ('collection', 'card') }}">Collection</a>
-<a href="{{ url_for('add') }}" class="{{ 'on' if ep == 'add' }}">Add cards</a>
+<a href="{{ url_for('add') }}" class="{{ 'on' if ep == 'add' }}">Search</a>
 <a href="{{ url_for('decks_list') }}" class="{{ 'on' if ep in ('decks_list', 'deck_view') }}">Decks</a>
 <a href="{{ url_for('locations_list') }}" class="{{ 'on' if ep in ('locations_list', 'location_view') }}">Locations</a>
 <a href="{{ url_for('import_index') }}" class="{{ 'on' if ep and ep.startswith('import') }}">Import</a>
