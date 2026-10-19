@@ -69,7 +69,10 @@ def test_buy_list(client, conn, two_decks):
     assert "Lightning Bolt" in page and "2 Sol Ring (C21) 263" in page
     hidden = client.get("/buy/export?format=text&hide_alt=1").data.decode()
     assert "Sol Ring" not in hidden and "2 Lightning Bolt" in hidden
-    assert client.get("/buy?format=tcgplayer").status_code == 200
+    page = client.get("/buy?format=tcgplayer&hide_alt=1").data.decode()
+    assert "<b>[TCGplayer mass entry]</b>" in page and "2 Lightning Bolt [M10]" in page
+    assert "format=text&amp;hide_alt=1" in page or "hide_alt=1&amp;format=text" in page   # links keep the filter
+    assert page.index("<textarea") < page.index('<table class="grid">')                  # list above the table
 
 
 def test_proxy_all_short(client, conn, two_decks):
