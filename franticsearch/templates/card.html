@@ -19,7 +19,7 @@
 {% for s in stock %}
 <tr>
 <td>{{ m.card_link(url_for('card', card_key=card_key, printing=s.printing_id), s.set_code|upper ~ ' #' ~ s.collector_number, s.image) }} {{ m.key_tags(s) }}</td>
-<td><a href="{{ url_for('location_view', location_id=s.location_id) }}">{{ s.location_name }}</a> <span class="muted">({{ s.location_type }})</span></td>
+<td>{{ m.loc_link(s.location_id, s.location_name, s.location_type) }}{% if s.location_type != 'deck' %} <span class="muted">({{ s.location_type }})</span>{% endif %}</td>
 <td class="num">{{ s.qty }}</td>
 <td>{% if s.location_type == 'deck' %}<span class="muted">use the deck's pull/return lists</span>{% else %}{{ m.stock_actions(s, locs) }}{% endif %}</td>
 </tr>
@@ -32,7 +32,7 @@
 <table class="grid">
 <tr><th>User</th><th>Location</th><th>Printing</th><th>Qty</th></tr>
 {% for s in others %}
-<tr><td>{{ s.owner_name }}</td><td><a href="{{ url_for('location_view', location_id=s.location_id) }}">{{ s.location_name }}</a> <span class="muted">({{ s.location_type }})</span></td>
+<tr><td>{{ s.owner_name }}</td><td>{{ m.loc_link(s.location_id, s.location_name, s.location_type) }}{% if s.location_type != 'deck' %} <span class="muted">({{ s.location_type }})</span>{% endif %}</td>
 <td>{{ m.card_link(url_for('card', card_key=card_key, printing=s.printing_id), s.set_code|upper ~ ' #' ~ s.collector_number, s.image) }} {{ m.key_tags(s) }}</td><td class="num">{{ s.qty }}</td></tr>
 {% endfor %}
 </table>
@@ -59,6 +59,23 @@ Language <select name="lang">{% for code, lname in LANGUAGES.items() %}<option v
 </form>
 {% else %}
 <p>Create a <a href="{{ url_for('locations_list') }}">location</a> first.</p>
+{% endif %}
+
+{% if my_decks %}
+<h2 id="deck">Add to a deck</h2>
+<form method="post" action="{{ url_for('deck_add_card') }}" class="deckadd"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+<input type="hidden" name="next" value="{{ request.script_root ~ request.full_path }}">
+<table class="kv">
+<tr><th>Printing</th><td><select name="printing_id">
+{% for p in printings %}<option value="{{ p.scryfall_id }}" {{ 'selected' if p.scryfall_id == shown.scryfall_id }}>{{ p.set_code|upper }} #{{ p.collector_number }} &mdash; {{ p.set_name }} ({{ (p.released_at or '')[:4] }}) [{{ (p.finishes|fromjson)|join('/') }}]</option>{% endfor %}
+</select></td></tr>
+<tr><th>Finish</th><td><select name="finish">{% for fi in FINISHES %}<option>{{ fi }}</option>{% endfor %}</select></td></tr>
+<tr><th>Quantity</th><td><input type="number" name="qty" value="1" min="1"></td></tr>
+<tr><th>Deck</th><td><select name="deck_id">{% for d in my_decks %}<option value="{{ d.id }}" {{ 'selected' if d.id == last_deck }}>{{ d.name }}</option>{% endfor %}</select>
+<select name="board" aria-label="board">{% for b in BOARDS %}<option value="{{ b }}" {{ 'selected' if b == 'main' }}>{{ BOARD_NAMES[b] }}</option>{% endfor %}</select></td></tr>
+<tr><th></th><td><button>Add to deck</button> <span class="muted">changes the deck's list; the card moves in via its pull list</span></td></tr>
+</table>
+</form>
 {% endif %}
 
 {% if history %}

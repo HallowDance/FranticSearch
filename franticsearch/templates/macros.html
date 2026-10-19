@@ -6,6 +6,11 @@
 {%- if href %}<a class="cardlink" href="{{ href }}">{{ inner }}</a>{% else %}<span class="cardlink">{{ inner }}</span>{% endif %}
 {%- endmacro %}
 
+{# A location's name for display. Deck locations are an implementation detail: they show as
+   "Decks / <deck>" and their link (location_view) redirects to the deck page. #}
+{% macro place(name, type) -%}{% if type == 'deck' %}Decks / {% endif %}{{ name }}{%- endmacro %}
+{% macro loc_link(id, name, type) -%}<a href="{{ url_for('location_view', location_id=id) }}">{{ place(name, type) }}</a>{%- endmacro %}
+
 {# Column header that sorts the current page by `key` (click again to reverse). #}
 {% macro sort_th(label, key, current) -%}
 {% set desc = current == key %}
@@ -104,8 +109,8 @@
 <td>{{ m.reason }}</td>
 <td class="num">{{ m.qty }}</td>
 <td>{{ card_link(url_for('card', card_key=m.card_key), m.name, m.image) }} <span class="muted">{{ m.set_code|upper }} #{{ m.collector_number }}</span> {{ key_tags(m) }}</td>
-<td>{% if m.from_location_id %}<a href="{{ url_for('location_view', location_id=m.from_location_id) }}">{{ m.from_name }}</a>{% else %}<span class="muted">(outside)</span>{% endif %}</td>
-<td>{% if m.to_location_id %}<a href="{{ url_for('location_view', location_id=m.to_location_id) }}">{{ m.to_name }}</a>{% else %}<span class="muted">(outside)</span>{% endif %}</td>
+<td>{% if m.from_location_id %}{{ loc_link(m.from_location_id, m.from_name, m.from_type) }}{% else %}<span class="muted">(outside)</span>{% endif %}</td>
+<td>{% if m.to_location_id %}{{ loc_link(m.to_location_id, m.to_name, m.to_type) }}{% else %}<span class="muted">(outside)</span>{% endif %}</td>
 <td>{{ m.note }}</td>
 </tr>
 {%- endmacro %}

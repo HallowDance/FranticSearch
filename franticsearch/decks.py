@@ -1,7 +1,9 @@
 """Decks and their slots. Each deck owns exactly one location of type 'deck'.
 
-Phase 2 creates decks through deck import and shows them read-only; the editor,
-derived deck state and pull/return lists come in phase 4.
+Decks are target lists: slots say which printing (+ finish) and how many copies a
+deck wants. Slots match copies by printing + finish only; condition and language
+don't matter for decks (slots are stored as NM/en). Derived state and the
+pull/return lists are in ``deckplan``.
 """
 
 from __future__ import annotations
@@ -49,21 +51,122 @@ def create(
         raise LedgerError(f"you already have a location or deck named {name!r}") from None
 
 
-def add_slot(conn: sqlite3.Connection, deck_id: int, key: StockKey, board: str, qty: int) -> None:
+def update(conn: sqlite3.Connection, deck_id: int, name: str, format_: str, notes: str) -> None:
+    """Rename / change format and notes. The deck location is renamed with the deck."""
+    deck = get(conn, deck_id)
+    if deck is None:
+        raise LedgerError("unknown deck")
+    name = (name or "").strip()
+    if not name:
+        raise LedgerError("deck name is required")
+    if len(name) > 100:
+        raise LedgerError("deck name is too long (max 100)")
+    if format_ not in FORMATS:
+        raise LedgerError(f"unknown format {format_!r}")
+    try:
+        with transaction(conn):
+            conn.execute("UPDATE locations SET name = ? WHERE id = ?", (name, deck["location_id"]))
+            conn.execute("UPDATE decks SET name = ?, format = ?, notes = ? WHERE id = ?",
+                         (name, format_, (notes or "").strip(), deck_id))
+    except sqlite3.IntegrityError:
+        raise LedgerError(f"you already have a location or deck named {name!r}") from None
+
+
+def add_slot(conn: sqlite3.Connection, deck_id: int, key: StockKey, board: str, qty: int,
+             proxy: int = 0) -> None:
     """Want ``qty`` more of ``key`` on ``board`` (adds to an existing slot)."""
     if board not in BOARDS:
         raise LedgerError(f"unknown board {board!r}")
     if qty <= 0:
         raise LedgerError("quantity must be positive")
+    if not 0 <= proxy <= qty:
+        raise LedgerError("proxies must be between 0 and the quantity")
+    key = StockKey(key.printing_id, key.finish)  # slots ignore condition/language
     with transaction(conn):
         validate_key(conn, key)
         conn.execute(
-            "INSERT INTO deck_slots(deck_id, printing_id, finish, condition, lang, board, qty_wanted)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?)"
+            "INSERT INTO deck_slots(deck_id, printing_id, finish, condition, lang, board,"
+            " qty_wanted, qty_proxy) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
             " ON CONFLICT(deck_id, printing_id, finish, condition, lang, board)"
-            " DO UPDATE SET qty_wanted = qty_wanted + excluded.qty_wanted",
-            (deck_id, *key.as_tuple(), board, qty),
+            " DO UPDATE SET qty_wanted = qty_wanted + excluded.qty_wanted,"
+            "               qty_proxy = qty_proxy + excluded.qty_proxy",
+            (deck_id, *key.as_tuple(), board, qty, proxy),
         )
+
+
+# A slot is addressed in forms as "printing|finish|condition|lang|board".
+
+def slot_id(row) -> str:
+    return "|".join((row["printing_id"], row["finish"], row["condition"], row["lang"], row["board"]))
+
+
+def get_slot(conn: sqlite3.Connection, deck_id: int, sid: str) -> sqlite3.Row | None:
+    parts = (sid or "").split("|")
+    if len(parts) != 5:
+        return None
+    return conn.execute(
+        "SELECT * FROM deck_slots WHERE deck_id = ? AND printing_id = ? AND finish = ?"
+        " AND condition = ? AND lang = ? AND board = ?", (deck_id, *parts),
+    ).fetchone()
+
+
+def _delete_slot(conn: sqlite3.Connection, slot: sqlite3.Row) -> None:
+    conn.execute(
+        "DELETE FROM deck_slots WHERE deck_id = ? AND printing_id = ? AND finish = ?"
+        " AND condition = ? AND lang = ? AND board = ?",
+        (slot["deck_id"], slot["printing_id"], slot["finish"], slot["condition"], slot["lang"],
+         slot["board"]),
+    )
+
+
+def _check_same_card(conn: sqlite3.Connection, old: str, new: str) -> None:
+    if old == new:
+        return
+    if not conn.execute(
+        "SELECT 1 FROM printings a JOIN printings b ON a.oracle_id = b.oracle_id"
+        " WHERE a.scryfall_id = ? AND b.scryfall_id = ?", (old, new)).fetchone():
+        raise LedgerError("that's a printing of a different card")
+
+
+def edit_slot(
+    conn: sqlite3.Connection, deck_id: int, sid: str, *, qty: int, proxy: int, board: str,
+    printing_id: str | None = None, finish: str | None = None,
+) -> None:
+    """Change a slot's quantity, proxies, board, printing or finish; qty 0 removes it.
+
+    Moving onto a board/printing that already has a slot merges the two. Changing
+    the printing leaves the old copies as excess (return list) and makes the new
+    printing short (pull list).
+    """
+    with transaction(conn):
+        slot = get_slot(conn, deck_id, sid)
+        if slot is None:
+            raise LedgerError("that slot doesn't exist any more")
+        if qty < 0:
+            raise LedgerError("quantity cannot be negative")
+        if not 0 <= proxy <= max(qty, 0):
+            raise LedgerError("proxies must be between 0 and the quantity")
+        _delete_slot(conn, slot)
+        if qty:
+            key = StockKey(printing_id or slot["printing_id"], finish or slot["finish"])
+            _check_same_card(conn, slot["printing_id"], key.printing_id)
+            add_slot(conn, deck_id, key, board, qty, proxy)
+
+
+def retarget(conn: sqlite3.Connection, deck_id: int, sid: str, key: StockKey, qty: int | None = None) -> None:
+    """Switch ``qty`` copies (default all) of a slot to another printing/finish of the card."""
+    with transaction(conn):
+        slot = get_slot(conn, deck_id, sid)
+        if slot is None:
+            raise LedgerError("that slot doesn't exist any more")
+        _check_same_card(conn, slot["printing_id"], key.printing_id)
+        n = slot["qty_wanted"] if qty is None else min(qty, slot["qty_wanted"])
+        if n <= 0:
+            raise LedgerError("quantity must be positive")
+        rest = slot["qty_wanted"] - n
+        edit_slot(conn, deck_id, sid, qty=rest, proxy=min(slot["qty_proxy"], rest), board=slot["board"])
+        moved_proxy = max(0, slot["qty_proxy"] - rest)
+        add_slot(conn, deck_id, key, slot["board"], n, min(moved_proxy, n))
 
 
 def commander_names(conn: sqlite3.Connection, deck_id: int) -> list[str]:
@@ -128,27 +231,29 @@ def list_all(conn: sqlite3.Connection, owner: int) -> list[sqlite3.Row]:
 
 
 def slots(conn: sqlite3.Connection, deck_id: int) -> list[sqlite3.Row]:
-    """Slots with printing info and where matching copies are (read-only view).
+    """Slots with printing info and where matching copies are.
 
-    ``in_deck`` = copies at the deck's location; ``free`` = the deck owner's copies
-    of the exact key outside any deck; ``owned_any`` = the owner's copies of any
-    printing of the card.
+    ``in_deck`` = copies of the printing + finish at the deck's location (shared by
+    slots of the same printing on several boards; ``deckplan.state`` splits it);
+    ``free`` = the deck owner's copies of the printing + finish outside any deck;
+    ``owned_any`` = the owner's copies of any printing of the card.
     """
     return conn.execute(
         """SELECT ds.*, p.name, p.set_code, p.collector_number, p.type_line, p.mana_cost, p.cmc,
-                  p.image_normal AS image,
+                  p.image_normal AS image, p.oracle_id, p.colors, p.color_identity,
+                  p.legalities, p.oracle_text,
                   COALESCE(p.oracle_id, p.scryfall_id) AS card_key,
                   (SELECT COALESCE(SUM(s.qty), 0) FROM stock s
                     WHERE s.location_id = d.location_id AND s.printing_id = ds.printing_id
-                      AND s.finish = ds.finish AND s.condition = ds.condition AND s.lang = ds.lang
+                      AND s.finish = ds.finish
                   ) AS in_deck,
                   (SELECT COALESCE(SUM(s.qty), 0) FROM stock s JOIN locations l ON l.id = s.location_id
                     WHERE l.type <> 'deck' AND l.owner_id = dl.owner_id AND s.printing_id = ds.printing_id
-                      AND s.finish = ds.finish AND s.condition = ds.condition AND s.lang = ds.lang
+                      AND s.finish = ds.finish
                   ) AS free,
                   (SELECT GROUP_CONCAT(l.name, ', ') FROM stock s JOIN locations l ON l.id = s.location_id
                     WHERE l.type <> 'deck' AND l.owner_id = dl.owner_id AND s.printing_id = ds.printing_id
-                      AND s.finish = ds.finish AND s.condition = ds.condition AND s.lang = ds.lang
+                      AND s.finish = ds.finish
                   ) AS free_where,
                   (SELECT COALESCE(SUM(s.qty), 0) FROM stock s JOIN printings p2 ON p2.scryfall_id = s.printing_id
                      JOIN locations l ON l.id = s.location_id

@@ -15,7 +15,7 @@ FranticSearch: self-hosted MTG collection & deck manager where **every physical 
 
 ```sh
 python3 -m venv .venv && . .venv/bin/activate && pip install -e ".[dev,serve]"
-pytest                                   # full suite, ~10 s, no network (79 tests)
+pytest                                   # full suite, ~10 s, no network (91 tests)
 python -m franticsearch serve            # dev server http://127.0.0.1:6602 (auto-syncs Scryfall)
 python -m franticsearch serve --no-auto-sync
 python -m franticsearch migrate          # apply pending migrations (serve also does this)
@@ -35,10 +35,11 @@ Env: `FS_DB` (default `data/franticsearch.db`), `FS_AUTO_SYNC` (default `1`), `F
 |---|---|
 | `franticsearch/migrations/NNN_*.sql` | Schema; latest is `005_users.sql`. Append a new numbered file for every change; never edit applied ones. The runner disables FKs per migration (so tables can be rebuilt) and runs `foreign_key_check` before COMMIT. Version in `PRAGMA user_version`. |
 | `db.py` | Connections (WAL, FKs on, autocommit), **re-entrant** `transaction()` (joins an open one, so domain functions compose atomically), migration runner, `meta` helpers |
-| `ledger.py` | **The only code that changes `stock`.** acquire(_many) / move(_many) / adjust / sell / undo write stock + `movements` in one transaction. Refuses moves between two users' locations. `check()` verifies the invariant. Also `LANGUAGES`, `CONDITIONS`, `StockKey`, `validate_key`. |
+| `ledger.py` | **The only code that changes `stock`.** acquire(_many) / move(_many) / transfer_many (several from→to pairs, one batch) / adjust / sell / undo write stock + `movements` in one transaction. Refuses moves between two users' locations. `check()` verifies the invariant. Also `LANGUAGES`, `CONDITIONS`, `StockKey`, `validate_key`. |
 | `users.py` | Accounts: create (first admin adopts ownerless locations/imports), authenticate (constant-ish time), set password |
 | `locations.py` | Location CRUD (owner, names unique per owner), archive, visibility (`private` < `users` < `link`) + share tokens, `can_view`, `shared()` for the People page |
-| `decks.py` | Deck + its same-named deck location, `add_slot`, read-only `slots()` (in-deck / free / where / any-printing, scoped to the deck owner), `grouped()` by card type, `mana_curve()`, delete (only if the deck location has no history). `BOARDS`, `FORMATS`, `COMMANDER_FORMATS`. |
+| `decks.py` | Deck + its same-named deck location (`update` renames both), `add_slot`, `edit_slot` (qty / proxy / board / printing / finish; merges, qty 0 removes), `retarget`, slot ids `printing\|finish\|cond\|lang\|board`, `slots()` (in-deck / free / where / any-printing, scoped to the deck owner), `grouped()` by card type, `mana_curve()`, delete (only if the deck location has no history). `BOARDS`, `FORMATS`, `COMMANDER_FORMATS`. |
+| `deckplan.py` | Phase 4, computed never stored: `state()` (per-slot in_deck / short, excess lines), `pull_plan()` / `confirm_pulls()` (one deck or all; free copies planned once), `return_plan()` / `confirm_returns()` (default = last pull source, else Unsorted), `mark_built()` (retarget to an owned free printing, then pull), `analysis()` (colours, legality, copy limits, size, commander identity). Confirm functions recompute the plan, so stale forms can't over-move. |
 | `importer.py` | Moxfield deck text / collection CSV: parse → `resolve()` (set+cn → name+set → `default_key()` = owner's free copy, else newest released regular paper printing) → import (per-owner sha256 dedupe). Unresolved queue fix/dismiss. `paste_into()` for quick list entry. |
 | `cardtypes.py` | Type line → (supertypes, card types, subtypes) over all faces |
 | `queries.py` | Read-only queries. Collection / location / history / totals per owner; `shared_stock`; `StockFilter` (location filters, in Python); `CardSearch` + `search()` (phase 3, SQL); whitelisted `order_by()` for `?sort=` |
@@ -58,8 +59,10 @@ Keep domain logic framework-free (unit-testable) and the Flask layer thin.
 - **Shared/read-only views must not leak private data**, e.g. a deck's "where (free)" names the owner's other locations, so it's hidden for others. Anonymous share-link views get no `/card/` links (`card_link(href=None)`).
 - Stock key = printing (Scryfall id) + finish + condition (default `NM`) + language (default `en`). Condition/lang are hidden in the UI unless set.
 - Ledger reasons: `import`, `acquire` (no source) · `sell` (no destination) · `adjust` (one side) · `move` (non-deck ↔ non-deck) · `pull` (into a deck location) · `return` (out of one).
-  - `ledger.move()` infers move/pull/return. Undo writes compensating rows tagged `undo_of`; imports can't be undone.
-- Deck locations change only via the deck's pull/return lists (Phase 4); manual forms exclude them.
+  - `ledger.move()` / `transfer_many()` infer move/pull/return. Undo writes compensating rows tagged `undo_of`; imports can't be undone.
+- Deck locations change only via the deck's pull/return lists and "mark as built"; manual forms exclude them.
+- **Deck locations are hidden plumbing in the UI** (PLAN.md § Decks in the UI): show location names with `m.place(name, type)` / `m.loc_link(id, name, type)` so decks read "Decks / <name>"; lists show one "Decks" row; `/locations/<deck loc>` redirects to the deck page. Queries that feed location names should also return the location type.
+- **Deck slots match copies by printing + finish**; condition/language don't matter for decks (slots are stored NM/en).
 - Strict ownership: a copy is in exactly one location; no cross-deck swap suggestions.
 - Locations with ledger history can't be deleted; once empty they can be **archived**.
 
@@ -91,16 +94,12 @@ Keep domain logic framework-free (unit-testable) and the Flask layer thin.
   - #6 phase 2b users & sharing
   - #7 location filters
   - #8 phase 3 card search
-- 79 tests pass.
+- Open: #10 systemd services for server + tunnel; phase 4 decks (branch `phase-4`).
+- 91 tests pass.
 - Verified on real data: Scryfall sync (118,893 printings); Moxfield deck text, both exports (100/100); Moxfield collection CSV (337 rows, 0 unresolved, in "Rares Binder").
 - **Unverified**: `docker compose up --build` itself. There's no container runtime on the dev machine; the Dockerfile's steps were replayed outside a container.
-- **Next: Phase 4, decks** (PLAN.md § Phases, workflows 1–3 and 5).
-  - Deck editor: slots, boards, proxies, **printing switch** (the user asked for this).
-  - Derived deck state: in deck / short / excess.
-  - Pull list and return list.
-  - "Mark as built" for imported decks.
-  - Live stats + legality, commander colour identity.
-  - Already in place: `deck_slots` (with `qty_proxy`), `decks.slots()` (in-deck/free counts), `importer.default_key()`, `ledger.move_many` (infers pull/return), batch undo, read-only deck page with type groups + mana curve, card search with quick add (to reuse for "add to deck").
+- **Phase 4, decks** (branch `phase-4`): editor (new deck, settings, slot page with printing switch, add from search / card page / pasted list), derived status, pull list (per deck and all decks, with "use this printing"), return list, mark as built, stats + format checks. Verified on a copy of the live DB (mark as built: 4 retargeted, 4 pulled, check OK).
+- **Next: Phase 5, shortfalls** (PLAN.md § Phases): cross-deck buy list and exports.
 - Other open to-dos:
   - Backups (the app is internet-facing now).
   - `FS_SECURE_COOKIE=1` once only HTTPS is used.

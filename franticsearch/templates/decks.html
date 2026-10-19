@@ -3,11 +3,20 @@
 <h1>Decks</h1>
 {% if decks %}
 <table class="grid">
-<tr><th>Deck</th><th>Format</th><th>Cards</th><th>Unresolved</th></tr>
-{% for d in decks %}
-<tr><td><a href="{{ url_for('deck_view', deck_id=d.id) }}">{{ d.name }}</a></td><td>{{ d.format or '-' }}</td><td class="num">{{ d.cards }}</td><td class="num">{% if d.unresolved %}<b>{{ d.unresolved }}</b>{% else %}0{% endif %}</td></tr>
+<tr><th>Deck</th><th>Format</th><th>Cards</th><th>Status</th><th>Unresolved</th></tr>
+{% for d, status in decks %}
+<tr><td><a href="{{ url_for('deck_view', deck_id=d.id) }}">{{ d.name }}</a></td><td>{{ d.format or '-' }}</td><td class="num">{{ d.cards }}</td>
+<td>{% if status == 'complete' %}complete{% else %}<b>{{ status }}</b>{% endif %}</td>
+<td class="num">{% if d.unresolved %}<b>{{ d.unresolved }}</b>{% else %}0{% endif %}</td></tr>
 {% endfor %}
 </table>
+<p><a href="{{ url_for('pull_all') }}">Pull list for all decks</a></p>
 {% else %}<p class="muted">No decks yet.</p>{% endif %}
-<p>Decks are created by <a href="{{ url_for('import_index') }}">importing a deck list</a>. The deck editor, pull and return lists come later.</p>
+<h2>New deck</h2>
+<form method="post" action="{{ url_for('deck_create') }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+<label>Name <input name="name" size="24" required></label>
+<label>Format <select name="format">{% for fmt in FORMATS %}<option value="{{ fmt }}">{{ fmt or '(none)' }}</option>{% endfor %}</select></label>
+<button>Create</button>
+</form>
+<p class="muted">Or <a href="{{ url_for('import_index') }}">import a deck list</a> from Moxfield.</p>
 {% endblock %}

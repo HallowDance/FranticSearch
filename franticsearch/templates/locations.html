@@ -1,19 +1,21 @@
-{% extends "base.html" %}{% block title %}Locations{% endblock %}
+{% extends "base.html" %}{% import "macros.html" as m with context %}{% block title %}Locations{% endblock %}
 {% block body %}
 <h1>Locations</h1>
 {% if locs %}
 <table class="grid">
 <tr><th>Name</th><th>Type</th><th>Copies</th><th>Notes</th></tr>
-{% for l in locs %}
+{% set decklocs = locs|selectattr('type', 'equalto', 'deck')|list %}
+{% for l in locs if l.type != 'deck' %}
 <tr><td><a href="{{ url_for('location_view', location_id=l.id) }}">{{ l.name }}</a></td><td>{{ l.type }}</td><td class="num">{{ l.cards }}</td><td>{{ l.notes }}</td></tr>
 {% endfor %}
+{% if decklocs %}<tr><td><a href="{{ url_for('decks_list') }}">Decks</a></td><td>decks</td><td class="num">{{ decklocs|sum(attribute='cards') }}</td><td class="muted">{{ decklocs|length }} deck{{ '' if decklocs|length == 1 else 's' }}; the cards physically in them</td></tr>{% endif %}
 </table>
 {% else %}<p class="muted">No locations yet.</p>{% endif %}
 {% if archived %}
 <details><summary>Archived locations ({{ archived|length }})</summary>
 <table class="grid">
 <tr><th>Name</th><th>Type</th><th>Notes</th></tr>
-{% for l in archived %}<tr><td><a href="{{ url_for('location_view', location_id=l.id) }}">{{ l.name }}</a></td><td>{{ l.type }}</td><td>{{ l.notes }}</td></tr>{% endfor %}
+{% for l in archived if l.type != 'deck' %}<tr><td><a href="{{ url_for('location_view', location_id=l.id) }}">{{ l.name }}</a></td><td>{{ l.type }}</td><td>{{ l.notes }}</td></tr>{% endfor %}
 </table>
 </details>
 {% endif %}
@@ -23,7 +25,7 @@ Name <input name="name" size="24" required>
 Type <select name="type">{% for t in USER_TYPES %}<option>{{ t }}</option>{% endfor %}</select>
 Notes <input name="notes" size="30">
 <button>Create</button>
-<div class="muted">Deck locations are created together with decks.</div>
+<div class="muted">Decks hold their own cards: create them on the <a href="{{ url_for('decks_list') }}">Decks</a> page.</div>
 </fieldset>
 </form>
 {% endblock %}

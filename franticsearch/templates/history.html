@@ -4,7 +4,7 @@
 <h1>History</h1>
 <form method="get" action="{{ url_for('history') }}">
 Location <select name="location"><option value="">(any)</option>
-{% for l in locs %}<option value="{{ l.id }}" {{ 'selected' if location == l.id }}>{{ l.name }}</option>{% endfor %}
+{% for l in locs %}<option value="{{ l.id }}" {{ 'selected' if location == l.id }}>{{ m.place(l.name, l.type) }}</option>{% endfor %}
 </select> <button>Filter</button>
 </form>
 {% if rows %}

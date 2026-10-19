@@ -443,6 +443,32 @@ def paste_into(
     return batch, sum(resolved.values()), left
 
 
+def paste_into_deck(
+    conn: sqlite3.Connection, deck_id: int, text: str, board: str = "main", *, owner: int
+) -> tuple[int, list[tuple[str, str]]]:
+    """Add a pasted deck list to a deck's slots (bulk add in the editor).
+
+    Section headers pick the board; without any, every line goes to ``board``.
+    Returns (cards added, [(line, problem)]).
+    """
+    if board not in decks.BOARDS:
+        raise LedgerError(f"unknown board {board!r}")
+    lines = parse_deck_text(text)
+    if not any(_section(r) for r in text.splitlines()):
+        for line in lines:
+            line.board = board
+    added, left = 0, []
+    with transaction(conn):
+        for line in lines:
+            key, problem = resolve(conn, line, allow_default=True, owner=owner)
+            if key:
+                decks.add_slot(conn, deck_id, key, line.board, line.qty)
+                added += line.qty
+            else:
+                left.append((line.raw, problem))
+    return added, left
+
+
 # --------------------------------------------------------------------------- queue
 
 def get_import(conn: sqlite3.Connection, import_id: int) -> sqlite3.Row | None:

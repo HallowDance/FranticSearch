@@ -16,6 +16,8 @@ from .ledger import LOCATION_TYPES, LedgerError
 # Types a user can create/edit directly; 'deck' locations come with decks (phase 4).
 USER_TYPES = tuple(t for t in LOCATION_TYPES if t != "deck")
 VISIBILITIES = ("private", "users", "link")
+# Default destination for collection imports and deck returns (created on first use).
+UNSORTED = "Unsorted"
 VISIBILITY_NAMES = {"private": "Private", "users": "Shared with users",
                     "link": "Shared with users + anyone with the link"}
 
@@ -109,6 +111,21 @@ def create(conn: sqlite3.Connection, name: str, type_: str, notes: str = "", *, 
     except sqlite3.IntegrityError:
         raise LedgerError(f"you already have a location named {name!r}") from None
     return cur.lastrowid
+
+
+def unsorted(conn: sqlite3.Connection, *, owner: int) -> int:
+    """The owner's "Unsorted" box (default destination for imports and returns), created
+    on first use and unarchived if needed."""
+    with transaction(conn):
+        loc = conn.execute("SELECT * FROM locations WHERE owner_id = ? AND name = ? COLLATE NOCASE",
+                           (owner, UNSORTED)).fetchone()
+        if loc is None:
+            return create(conn, UNSORTED, "box", owner=owner)
+        if loc["type"] == "deck":
+            raise LedgerError(f"your {UNSORTED!r} is a deck; rename it")
+        if loc["archived"]:
+            conn.execute("UPDATE locations SET archived = 0 WHERE id = ?", (loc["id"],))
+        return loc["id"]
 
 
 def update(conn: sqlite3.Connection, location_id: int, name: str, type_: str, notes: str) -> None:

@@ -1,0 +1,46 @@
+{% extends "base.html" %}{% import "macros.html" as m with context %}
+{% block title %}Pull list{% if deck %} - {{ deck.name }}{% endif %}{% endblock %}
+{% block body %}
+<h1>Pull list {% if deck %}for <a href="{{ url_for('deck_view', deck_id=deck.id) }}">{{ deck.name }}</a>{% else %}<span class="muted">(all decks)</span>{% endif %}</h1>
+{% set action = url_for('deck_pull_post', deck_id=deck.id) if deck else url_for('pull_all_post') %}
+{% if lines %}
+<p class="muted">Take these cards out of their locations and put them in the deck, then confirm. Copies are planned for one deck only; a free copy is a copy outside any deck.</p>
+<form method="post" action="{{ action }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+<table class="grid">
+<tr><th></th><th>Qty</th><th>Card</th><th>Printing</th><th>From</th>{% if not deck %}<th>Into deck</th>{% endif %}</tr>
+{% for l in lines|sort(attribute='from_name') %}
+<tr><td><input type="checkbox" name="line" value="{{ l.id }}" {{ 'checked' if request.args.get('all') }} aria-label="pull this"></td>
+<td class="num">{{ l.qty }}</td>
+<td>{{ m.card_link(url_for('card', card_key=l.card_key, printing=l.key.printing_id), l.name, l.image) }}</td>
+<td>{{ l.set_code|upper }} #{{ l.collector_number }} {{ m.key_tags({'finish': l.key.finish, 'condition': l.key.condition, 'lang': l.key.lang}) }}</td>
+<td><a href="{{ url_for('location_view', location_id=l.from_id) }}">{{ l.from_name }}</a></td>
+{% if not deck %}<td><a href="{{ url_for('deck_view', deck_id=l.deck_id) }}">{{ l.deck_name }}</a></td>{% endif %}</tr>
+{% endfor %}
+</table>
+<button>Pull ticked</button> <button name="all" value="1">Pull all {{ lines|sum(attribute='qty') }}</button>
+<a href="?all=1">tick all</a>
+</form>
+{% else %}<p>Nothing to pull: no free copies of the short printings.</p>{% endif %}
+
+{% if shortfalls %}
+<h2>Still short ({{ shortfalls|sum(attribute='qty') }})</h2>
+<p class="muted">No free copy of the exact printing for these. Proxy them (edit the slot), buy them, or switch the slot to a printing you have free.</p>
+<table class="grid">
+<tr><th>Short</th><th>Card</th><th>Printing</th>{% if not deck %}<th>Deck</th>{% endif %}<th>In other decks</th><th>Free in another printing</th></tr>
+{% for sf in shortfalls %}{% set s = sf.slot %}
+<tr><td class="num">{{ sf.qty }}</td>
+<td>{{ m.card_link(url_for('card', card_key=s.card_key, printing=s.printing_id), s.name, s.image) }}</td>
+<td><a href="{{ url_for('deck_slot', deck_id=sf.deck_id, slot=s.sid) }}">{{ s.set_code|upper }} #{{ s.collector_number }}</a> {{ m.key_tags(s) }}</td>
+{% if not deck %}<td><a href="{{ url_for('deck_view', deck_id=sf.deck_id) }}">{{ sf.deck_name }}</a></td>{% endif %}
+<td>{% for n in sf.in_other_decks %}{{ m.place(n, 'deck') }}{{ ', ' if not loop.last }}{% endfor %}</td>
+<td>{% for a in sf.alternatives[:5] %}
+<form class="inline" method="post" action="{{ url_for('deck_retarget', deck_id=sf.deck_id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+<input type="hidden" name="slot" value="{{ s.sid }}"><input type="hidden" name="printing_id" value="{{ a.printing_id }}"><input type="hidden" name="finish" value="{{ a.finish }}">
+<input type="hidden" name="qty" value="{{ [sf.qty, a.qty]|min }}"><input type="hidden" name="next" value="{{ request.script_root ~ request.full_path }}">
+{{ a.qty }}&times; {{ a.set_code|upper }} #{{ a.collector_number }}{% if a.finish != 'nonfoil' %} <span class="tag">{{ a.finish }}</span>{% endif %} <span class="muted">({{ a.where|join(', ') }})</span>
+<button title="Switch {{ [sf.qty, a.qty]|min }} of this slot to that printing">use this printing</button></form>{% if not loop.last %}<br>{% endif %}
+{% endfor %}</td></tr>
+{% endfor %}
+</table>
+{% endif %}
+{% endblock %}
