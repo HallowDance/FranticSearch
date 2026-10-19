@@ -222,12 +222,21 @@ def move_many(
     note: str = "",
 ) -> str:
     """Move several stock lines between the same two locations as one batch."""
+    return transfer_many(conn, ((from_id, to_id, key, qty) for key, qty in items), note)
+
+
+def transfer_many(
+    conn: sqlite3.Connection,
+    items: Iterable[tuple[int, int, StockKey, int]],
+    note: str = "",
+) -> str:
+    """Several moves (from, to, key, qty), possibly between different locations, as one
+    batch (e.g. a confirmed pull list). Reasons are inferred per move."""
     batch = new_batch_id()
     with transaction(conn):
-        reason = _move_reason(conn, from_id, to_id)
         n = 0
-        for key, qty in items:
-            _record(conn, batch, from_id, to_id, key, qty, reason, note)
+        for from_id, to_id, key, qty in items:
+            _record(conn, batch, from_id, to_id, key, qty, _move_reason(conn, from_id, to_id), note)
             n += 1
         if not n:
             raise LedgerError("nothing selected")

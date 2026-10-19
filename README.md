@@ -4,11 +4,12 @@ Self-hosted Magic: The Gathering collection & deck manager where **every physica
 
 Status: phases 1–3 shipped. Features:
 - **Collection:** card database, locations with filters, stock + ledger with batch undo, collection browser, manual add / move / adjust / remove, quick add, paste a list.
-- **Import:** Moxfield (deck lists → read-only decks; collection CSV → a location), with a queue for lines that need a decision.
+- **Decks:** built here (search or paste to add, per-slot qty / board / proxies / printing). Status per deck (short / excess), pull and return lists that move the physical cards, "mark as built" for imported decks, mana curve and format checks (legality, copies, size, commander colour identity).
+- **Import:** Moxfield (deck lists → decks; collection CSV → a location), with a queue for lines that need a decision.
 - **Search:** card search with your owned / free counts.
 - **Users:** a few users with separate collections; locations and decks can be shared.
 
-Next: the deck editor with pull / return lists (phase 4).
+Next: the cross-deck buy list and exports (phase 5).
 
 ## Run with Docker
 
@@ -56,7 +57,8 @@ pytest
 | `franticsearch/users.py` | accounts |
 | `franticsearch/locations.py` | location CRUD, archiving, sharing |
 | `franticsearch/cardtypes.py` | type line → supertypes / types / subtypes |
-| `franticsearch/decks.py` | decks, their deck locations and slots |
+| `franticsearch/decks.py` | decks, their deck locations and slots (editing, printing switch) |
+| `franticsearch/deckplan.py` | derived deck state, pull / return lists, mark as built, deck checks |
 | `franticsearch/importer.py` | Moxfield deck text / collection CSV import and the unresolved queue |
 | `franticsearch/scryfall.py` | bulk-data sync (`default_cards`) into `printings` |
 | `franticsearch/queries.py` | read-only queries for the UI, location filters, card search |

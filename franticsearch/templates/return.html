@@ -1,0 +1,26 @@
+{% extends "base.html" %}{% import "macros.html" as m with context %}
+{% block title %}Return list - {{ deck.name }}{% endblock %}
+{% block body %}
+<h1>Return list for <a href="{{ url_for('deck_view', deck_id=deck.id) }}">{{ deck.name }}</a></h1>
+{% if lines %}
+<p class="muted">These copies are in the deck but no slot wants them (removed, fewer wanted, other printing, maybeboard). Put them away, then confirm. The destination defaults to where the card was pulled from, else {{ unsorted }}.</p>
+<form method="post" action="{{ url_for('deck_return_post', deck_id=deck.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+<table class="grid">
+<tr><th></th><th>Qty</th><th>Card</th><th>Printing</th><th>Put into</th></tr>
+{% set has_unsorted = locs|selectattr('name', 'equalto', unsorted)|list %}
+{% for l in lines %}
+<tr><td><input type="checkbox" name="line" value="{{ l.id }}" {{ 'checked' if request.args.get('all') }} aria-label="return this"></td>
+<td class="num">{{ l.qty }}</td>
+<td>{{ m.card_link(url_for('card', card_key=l.card_key, printing=l.key.printing_id), l.name, l.image) }}</td>
+<td>{{ l.set_code|upper }} #{{ l.collector_number }} {{ m.key_tags({'finish': l.key.finish, 'condition': l.key.condition, 'lang': l.key.lang}) }}</td>
+<td><select name="to:{{ l.id }}" aria-label="destination">
+{% if not has_unsorted %}<option value="unsorted" {{ 'selected' if not l.default_to }}>{{ unsorted }} (new box)</option>{% endif %}
+{% for loc in locs %}<option value="{{ loc.id }}" {{ 'selected' if loc.id == l.default_to or (not l.default_to and loc.name == unsorted) }}>{{ loc.name }}</option>{% endfor %}
+</select></td></tr>
+{% endfor %}
+</table>
+<button>Return ticked</button> <button name="all" value="1">Return all {{ lines|sum(attribute='qty') }}</button>
+<a href="?all=1">tick all</a>
+</form>
+{% else %}<p>Nothing to return: every card in the deck is wanted.</p>{% endif %}
+{% endblock %}

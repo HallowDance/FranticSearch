@@ -114,6 +114,21 @@ Decided (2026-10-18, UI improvements, pulled forward from phase 6):
 - **Text | Images view** on the collection, location, deck and Add pages: a grid of card images (lazy-loaded, with a copy-count badge; the deck keeps its type groups). The choice is remembered in the session for all card lists. Row actions (move, recount, remove, quick add, tick boxes) live in the text view only.
 - **Mana symbols** rendered as Scryfall's SVGs (hotlinked, like card images) in costs and oracle text; alt text keeps `{W}` for copy/paste.
 
+## Phase 4 as built (2026-10-19)
+
+Decided with the user:
+- **Slots match copies by printing + finish.** Condition and language don't matter for decks; slots are stored as NM/en. In-deck, free, short, excess and the pull list all ignore condition/language (a deck happily holds an LP copy).
+- **Mark as built retargets**: where a slot's exact printing isn't free but another printing of the card is, the slot switches to that printing, then every free copy is pulled. Leftovers stay short.
+
+Details:
+- `deckplan.state()`: copies of a printing + finish at the deck location are shared over its slots in board order (commander, main, side). `short = wanted − in deck − proxies`. Excess = copies nobody wants, including maybe-board cards; worn/foreign copies are offered for return first.
+- **Pull list** per deck (`/decks/<id>/pull`) or for all decks (`/pull`): a free copy is planned for one deck only, most-copies location first. Tick lines or "pull all"; one batch (`ledger.transfer_many`), undoable. Unfillable copies are listed as *still short*, with the other free printings of the card ("use this printing" retargets that many copies of the slot) and the other decks holding the printing.
+- **Return list** (`/decks/<id>/return`): per excess line a destination select, defaulting to the non-deck location the printing last came into the deck from, else "Unsorted" (created/unarchived on use).
+- Confirming recomputes the plan and executes only lines still in it, so a stale page can't move more than planned.
+- **Editor**: new deck form on the Decks page; deck settings (name renames the deck location too, format, notes); a slot page for qty / proxies / board / printing (with owned/free per printing) / finish, qty 0 removes; changing printing = old copies become excess, new printing short. Add cards from Search (`/add?deck=<id>` turns quick add into "add to deck" with a board), from the card page (any printing/finish), or by pasting a list (headers pick the board, else the chosen one).
+- **Checks** on the deck page: banned / not legal cards for the deck's format, copy limits (4, or 1 in commander formats; basics and "any number" cards exempt; restricted = 1), deck size (100 for commander/duel/predh/paupercommander/brawl, 60 for standardbrawl/oathbreaker; else main ≥ 60 and side ≤ 15), commander present and colour identity. Plus non-land cards per colour and counts per board.
+- The Decks list shows each deck's status (complete / N short / N excess).
+
 ## Users & sharing (phase 2b)
 
 Decided 2026-10-18: a few people on one instance, each with a **separate collection**; locations (incl. decks) can be shared.
@@ -151,7 +166,7 @@ Decided for phase 2 (2026-10-18):
 - Collection CSV columns are matched by name (Moxfield's documented header plus common aliases); unreadable count/foil/condition/language values send the row to the unresolved queue instead of being guessed.
 - Unresolved queue: per line, *fix* (search card → pick printing, finish, condition, language, qty; collection lines are acquired with reason `import`, deck lines become slots) or *dismiss*.
 - Collection imports go into one chosen non-deck location; "Unsorted" (a box) is created on first use.
-- Imported decks are **read-only** until phase 4: Decks list + deck page (slots per board with in-deck / free / where / any-printing counts) and delete (only while no cards were ever moved into the deck). The deck's location has the deck's name.
+- Imported decks were **read-only** until phase 4: Decks list + deck page (slots per board with in-deck / free / where / any-printing counts) and delete (only while no cards were ever moved into the deck). The deck's location has the deck's name.
 
 ## Stack
 
@@ -171,8 +186,8 @@ Domain logic (`ledger.py`, later pull/return planning and import parsing) is fra
 | 2 | Import | Moxfield collection CSV, deck text import, unresolved queue | **Shipped** (PR #2). Collection CSV verified with a real Moxfield export on 2026-10-18 (337 rows, 0 unresolved) |
 | 2b | Users & sharing | Accounts (admin-created), login + CSRF, per-user collections, ownership checks on every route, location visibility (private / users / link), People page, others' copies on card pages | **Shipped** (PR #6) |
 | 3 | Card search | Local search over `printings` (name/type/text/colors/MV/set/legality), ownership-aware results | **Shipped** (PR #8) |
-| 4 | Decks | Deck editor (slots, boards, proxies, printing switch), live stats + legality, derived deck state, pull list, return list, "mark as built" | **Next.** Partly there: read-only deck page with type groups, mana curve, in-deck/free counts (PR #2, #4) |
-| 5 | Shortfalls | Proxies, cross-deck buy list, exports | Not started |
+| 4 | Decks | Deck editor (slots, boards, proxies, printing switch), live stats + legality, derived deck state, pull list, return list, "mark as built" | **Built** (branch `phase-4`), see § Phase 4 as built |
+| 5 | Shortfalls | Proxies, cross-deck buy list, exports | **Next.** Proxies per slot already exist (phase 4) |
 | 6 | Polish | Batch undo, ledger views, mobile layout pass, backup/restore | Partly: batch undo shipped (PR #4) |
 | later | — | Scryfall query syntax, public hosting + auth, prices, scanning, trades between users | Hosting + auth done: reverse proxy (PR #3), in-app login (PR #6). Still to do: run the tunnel/server as permanent services; backups |
 

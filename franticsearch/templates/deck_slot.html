@@ -1,0 +1,22 @@
+{% extends "base.html" %}{% import "macros.html" as m with context %}
+{% block title %}{{ p.name }} in {{ deck.name }}{% endblock %}
+{% block body %}
+<div class="cardbox">{% if p.image_normal %}<img src="{{ p.image_normal }}" alt="{{ p.name }}" loading="lazy">{% endif %}</div>
+<h1>{{ m.card_link(url_for('card', card_key=card_key, printing=p.scryfall_id), p.name, none) }} <span class="muted">in <a href="{{ url_for('deck_view', deck_id=deck.id) }}">{{ deck.name }}</a></span></h1>
+<form method="post" action="{{ url_for('deck_slot', deck_id=deck.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+<input type="hidden" name="slot" value="{{ sid }}">
+<table class="kv">
+<tr><th>Quantity</th><td><input type="number" name="qty" value="{{ slot.qty_wanted }}" min="0"> <span class="muted">0 removes the card</span></td></tr>
+<tr><th>Proxies</th><td><input type="number" name="proxy" value="{{ slot.qty_proxy }}" min="0"> <span class="muted">copies you play as proxies (not short, not pulled)</span></td></tr>
+<tr><th>Board</th><td><select name="board">{% for b in BOARDS %}<option value="{{ b }}" {{ 'selected' if b == slot.board }}>{{ BOARD_NAMES[b] }}</option>{% endfor %}</select></td></tr>
+<tr><th>Printing</th><td><select name="printing_id">
+{% for pr in printings %}{% set own = [] %}{% for fi in (pr.finishes|fromjson) %}{% set c = counts.get((pr.scryfall_id, fi)) %}{% if c %}{% set _ = own.append(fi ~ ': ' ~ c.owned ~ ' owned, ' ~ c.free ~ ' free') %}{% endif %}{% endfor %}
+<option value="{{ pr.scryfall_id }}" {{ 'selected' if pr.scryfall_id == slot.printing_id }}>{{ pr.set_code|upper }} #{{ pr.collector_number }} &mdash; {{ pr.set_name }} ({{ (pr.released_at or '')[:4] }}) [{{ (pr.finishes|fromjson)|join('/') }}]{% if own %} &mdash; {{ own|join('; ') }}{% endif %}</option>{% endfor %}
+</select></td></tr>
+<tr><th>Finish</th><td><select name="finish">{% for fi in FINISHES %}<option {{ 'selected' if fi == slot.finish }}>{{ fi }}</option>{% endfor %}</select> <span class="muted">must be one the printing exists in</span></td></tr>
+<tr><th></th><td><button>Save</button> <button name="remove" value="1" class="danger">Remove from deck</button></td></tr>
+</table>
+</form>
+<p class="muted">Changing the printing or finish only changes the list: copies of the old printing already in the deck show up on the return list, the new one on the pull list.</p>
+<div class="clear"></div>
+{% endblock %}

@@ -74,7 +74,7 @@ def test_csrf_token_required_on_every_post(conn, db_path):
     assert c.post("/locations", data={"name": "X", "type": "box", "csrf": new}).status_code == 302
     # every POST form on the main pages carries the token
     for url in ["/", "/locations", "/import", "/add?q=sol", f"/card/{SOL_ORACLE}", "/account",
-                "/admin/users", "/system"]:
+                "/admin/users", "/system", "/decks"]:
         html = c.get(url).data.decode()
         forms = re.findall(r'<form\b[^>]*method="post"[^>]*>(.{0,120})', html)
         assert forms and all('name="csrf"' in f for f in forms), url
@@ -137,8 +137,11 @@ def test_cli_user_commands(db_path, conn):
 def test_other_users_ids_are_not_found(bob_client, alices):
     a = alices
     key = {"printing_id": SOL_C21, "finish": "nonfoil", "condition": "NM", "lang": "en", "qty": "1"}
+    sid = f"{SOL_C21}|nonfoil|NM|en|main"
     gets = [f"/locations/{a['binder']}", f"/decks/{a['deck']}", f"/locations/{a['deck_loc']}",
-            f"/import/{a['import']}", f"/import/line/{a['unresolved']}"]
+            f"/import/{a['import']}", f"/import/line/{a['unresolved']}",
+            f"/decks/{a['deck']}/slot?slot={sid}", f"/decks/{a['deck']}/pull",
+            f"/decks/{a['deck']}/return", f"/add?deck={a['deck']}&q=sol"]
     for url in gets:
         assert bob_client.get(url).status_code == 404, url
     posts = [
@@ -158,6 +161,14 @@ def test_other_users_ids_are_not_found(bob_client, alices):
         (f"/import/line/{a['unresolved']}/fix", {**key}),
         (f"/import/line/{a['unresolved']}/dismiss", {}),
         ("/import/collection", {"location_id": a["binder"]}),
+        (f"/decks/{a['deck']}/edit", {"name": "Mine now"}),
+        (f"/decks/{a['deck']}/slot", {"slot": sid, "qty": "4", "proxy": "0", "board": "main"}),
+        ("/decks/add-card", {"deck_id": a["deck"], "card_key": SOL_ORACLE, "qty": "1", "board": "main"}),
+        (f"/decks/{a['deck']}/paste", {"text": "1 Sol Ring"}),
+        (f"/decks/{a['deck']}/pull", {"all": "1"}),
+        (f"/decks/{a['deck']}/retarget", {"slot": sid, "printing_id": SOL_C21, "qty": "1"}),
+        (f"/decks/{a['deck']}/return", {"all": "1"}),
+        (f"/decks/{a['deck']}/build", {}),
     ]
     for url, data in posts:
         assert bob_client.post(url, data=data).status_code == 404, url
@@ -167,6 +178,9 @@ def test_alice_data_untouched_after_bobs_attempts(bob_client, conn, alices):
     test_other_users_ids_are_not_found(bob_client, alices)
     assert ledger.qty_at(conn, alices["binder"], StockKey(SOL_C21)) == 2
     assert locations.get(conn, alices["binder"])["name"] == "Binder"
+    assert conn.execute("SELECT name FROM decks WHERE id = ?", (alices["deck"],)).fetchone()[0] == "Alice deck"
+    assert [tuple(r) for r in conn.execute("SELECT printing_id, qty_wanted FROM deck_slots")] == [(SOL_C21, 1)]
+    assert ledger.qty_at(conn, alices["deck_loc"], StockKey(SOL_C21)) == 0
     assert ledger.check(conn) == []
 
 

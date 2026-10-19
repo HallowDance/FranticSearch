@@ -6,23 +6,32 @@
 <p class="muted">{{ owner.username }}'s deck, shared read-only.</p>
 {% else %}
 {% if deck.notes %}<p>{{ deck.notes }}</p>{% endif %}
-<p class="muted">Read-only for now: this is the deck's target list. "In deck" counts copies physically at the deck's
-<a href="{{ url_for('location_view', location_id=deck.location_id) }}">location</a>; "free" counts copies of the exact printing outside any deck.
-{% if import_id %}Imported in <a href="{{ url_for('import_view', import_id=import_id) }}">import #{{ import_id }}</a>.{% endif %}</p>
+<p><b>Status: {{ status }}</b> &middot; {{ st.in_deck }} of {{ st.wanted }} cards in the deck{% if st.proxies %}, {{ st.proxies }} prox{{ 'y' if st.proxies == 1 else 'ies' }}{% endif %}.
+{% if st.short %}<a href="{{ url_for('deck_pull', deck_id=deck.id) }}">Pull list</a>{% endif %}
+{% if st.excess_total %}<a href="{{ url_for('deck_return', deck_id=deck.id) }}">Return list</a>{% endif %}
+&middot; <a href="{{ url_for('add', deck=deck.id) }}">Add cards</a> &middot; <a href="#paste">paste a list</a>
+&middot; <a href="{{ url_for('location_view', location_id=deck.location_id) }}">deck location</a>
+{% if import_id %}&middot; imported in <a href="{{ url_for('import_view', import_id=import_id) }}">import #{{ import_id }}</a>{% endif %}</p>
+{% if import_id and st.short %}
+<form method="post" action="{{ url_for('deck_build', deck_id=deck.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+<button>Mark as built</button> <span class="muted">the cards physically live in this deck: pull every free copy it wants (switching slots to the printing you own where needed)</span></form>
+{% endif %}
+{% if stats.warnings %}<div class="flash error">{% for w in stats.warnings %}{{ w }}<br>{% endfor %}</div>{% endif %}
 {% endif %}
 {# Shared views show only the list itself: the owner's other locations stay private. #}
-{% set ncols = 4 if readonly else 8 %}
+{% set ncols = 4 if readonly else 10 %}
 {% macro card_href(s) %}{% if not anonymous %}{{ url_for('card', card_key=s.card_key, printing=s.printing_id) }}{% endif %}{% endmacro %}
 {% macro slot_head() -%}
-<tr>{{ m.sort_th('Qty', 'qty', sort) }}{{ m.sort_th('Card', 'name', sort) }}{{ m.sort_th('Cost', 'cost', sort) }}<th>Printing</th>{% if not readonly %}<th>In deck</th><th>Free</th><th>Where (free)</th><th>Any printing</th>{% endif %}</tr>
+<tr>{{ m.sort_th('Qty', 'qty', sort) }}{{ m.sort_th('Card', 'name', sort) }}{{ m.sort_th('Cost', 'cost', sort) }}<th>Printing</th>{% if not readonly %}<th>In deck</th><th>Proxy</th><th>Short</th><th>Free</th><th>Where (free)</th><th></th>{% endif %}</tr>
 {%- endmacro %}
 {% macro slot_row(s) -%}
 <tr><td class="num">{{ s.qty_wanted }}</td>
 <td>{{ m.card_link(card_href(s)|trim, s.name, s.image) }}</td>
 <td class="cost">{{ s.mana_cost|mana }}</td>
 <td>{{ s.set_code|upper }} #{{ s.collector_number }} {{ m.key_tags(s) }}</td>
-{% if not readonly %}<td class="num">{{ s.in_deck }}</td><td class="num">{{ s.free }}</td>
-<td>{{ s.free_where or '' }}</td><td class="num">{{ s.owned_any }}</td>{% endif %}</tr>
+{% if not readonly %}{% if s.board == 'maybe' %}<td colspan="3" class="muted">doesn't count</td>{% else %}<td class="num">{{ s.in_deck }}</td><td class="num">{{ s.qty_proxy or '' }}</td><td class="num">{% if s.short %}<b>{{ s.short }}</b>{% endif %}</td>{% endif %}
+<td class="num">{{ s.free }}</td><td>{{ s.free_where or '' }}{% if not s.free and s.owned_any %}<span class="muted">{{ s.owned_any }} owned in other printings or decks</span>{% endif %}</td>
+<td><a href="{{ url_for('deck_slot', deck_id=deck.id, slot=s.sid) }}">edit</a></td>{% endif %}</tr>
 {%- endmacro %}
 {% macro tiles(rows) -%}
 <div class="cardgrid">{% for s in rows %}{{ m.card_tile(card_href(s)|trim, s.name, s.image, s.qty_wanted if s.qty_wanted > 1 else none) }}{% endfor %}</div>
@@ -51,19 +60,45 @@
 {% endfor %}
 </table>
 {% endif %}
-{% set peak = curve|map(attribute=1)|max %}
-{% if peak %}
-<h2>Mana curve <span class="muted">(non-land cards, incl. commander)</span></h2>
-<table class="grid curve">
-<tr><th>MV</th><th>Cards</th><th></th></tr>
-{% for mv, n in curve %}<tr><td class="num">{{ mv }}</td><td class="num">{{ n }}</td><td class="bar">{{ '&#9608;'|safe * n }}</td></tr>{% endfor %}
-</table>
-{% endif %}
 {% endif %}
 {{ board('side') }}
 {{ board('maybe') }}
 {% if not slots %}<p class="muted">No cards.</p>{% endif %}
-{% if not readonly %}{{ m.sharing(loc) }}{% endif %}
+{% if slots %}
+<h2>Stats</h2>
+{% set peak = curve|map(attribute=1)|max %}
+{% if peak %}
+<table class="grid curve">
+<tr><th>MV</th><th>Cards</th><th></th></tr>
+{% for mv, n in curve %}<tr><td class="num">{{ mv }}</td><td class="num">{{ n }}</td><td class="bar">{{ '&#9608;'|safe * n }}</td></tr>{% endfor %}
+</table>
+<p class="muted">Mana curve: non-land cards in main + commander.</p>
+{% endif %}
+{% if stats %}
+<p>Non-land cards by colour:
+{% for c, n in stats.colours.items() if n %}{{ ('{' ~ c ~ '}')|mana }} {{ n }}{{ ' ' }}{% endfor %}
+&middot; {% for b in BOARDS if stats.counts[b] %}{{ BOARD_NAMES[b] }} {{ stats.counts[b] }}{{ ', ' if not loop.last }}{% endfor %}</p>
+{% endif %}
+{% endif %}
+{% if not readonly %}
+<h2 id="paste">Add cards from a list</h2>
+<form method="post" action="{{ url_for('deck_paste', deck_id=deck.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+{% if paste %}<div class="flash error">{% for p in paste.problems %}{{ p }}<br>{% endfor %}</div>{% endif %}
+<textarea name="text" rows="6" cols="50" placeholder="4 Lightning Bolt&#10;1 Sol Ring (C21) 263&#10;2 Arcane Signet (VOC) 159 *F*">{{ paste.text if paste }}</textarea><br>
+Board <select name="board">{% for b in BOARDS %}<option value="{{ b }}" {{ 'selected' if b == 'main' }}>{{ BOARD_NAMES[b] }}</option>{% endfor %}</select>
+<button>Add to deck</button> <span class="muted">Moxfield/MTGA lines; section headers (Commander, Sideboard...) override the board. Lines without a set get your free printing, else the newest one. This only changes the list; cards move via the pull list.</span>
+</form>
+<h2>Deck settings</h2>
+<form method="post" action="{{ url_for('deck_edit', deck_id=deck.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+<table class="kv">
+<tr><th>Name</th><td><input name="name" value="{{ deck.name }}" size="30" required></td></tr>
+<tr><th>Format</th><td><select name="format">{% for fmt in FORMATS %}<option value="{{ fmt }}" {{ 'selected' if fmt == deck.format }}>{{ fmt or '(none)' }}</option>{% endfor %}</select></td></tr>
+<tr><th>Notes</th><td><input name="notes" value="{{ deck.notes }}" size="50"></td></tr>
+<tr><th></th><td><button>Save</button></td></tr>
+</table>
+</form>
+{{ m.sharing(loc) }}
+{% endif %}
 {% if deletable and not readonly %}
 <form method="post" action="{{ url_for('deck_delete', deck_id=deck.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
 <button class="danger">Delete deck</button> <span class="muted">no cards have been moved into it; its import record goes too, so the list can be imported again</span>

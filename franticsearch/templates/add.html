@@ -1,7 +1,8 @@
 {% extends "base.html" %}{% import "macros.html" as m with context %}{% block title %}Search{% endblock %}
 {% block body %}
-<h1>Search cards</h1>
+<h1>Search cards{% if target %} <span class="muted">to add to <a href="{{ url_for('deck_view', deck_id=target.id) }}">{{ target.name }}</a></span>{% endif %}</h1>
 <form class="filters" method="get" action="{{ url_for('add') }}">
+{% if target %}<input type="hidden" name="deck" value="{{ target.id }}">{% endif %}
 <fieldset><legend>Find cards</legend>
 <label>Name <input name="q" value="{{ f.q }}" size="20" autofocus></label>
 <label>Type <input name="type" value="{{ f.type }}" size="16" placeholder="legendary elf"></label>
@@ -13,18 +14,18 @@
 <label>Set <input name="set" value="{{ f.set }}" size="5" placeholder="voc"></label>
 <label>Legal in <select name="format"><option value="">(any)</option>{% for fmt in FORMATS if fmt %}<option {{ 'selected' if f.format == fmt }}>{{ fmt }}</option>{% endfor %}</select></label>
 <label>Show <select name="owned"><option value="">all cards</option><option value="owned" {{ 'selected' if f.owned == 'owned' }}>cards I own</option><option value="free" {{ 'selected' if f.owned == 'free' }}>I own, not in a deck</option></select></label>
-<button>Search</button> {% if f.active() %}<a href="{{ url_for('add') }}">reset</a>{% endif %}
+<button>Search</button> {% if f.active() %}<a href="{{ url_for('add', deck=target.id if target else none) }}">reset</a>{% endif %}
 </fieldset>
 </form>
 {% if f.active() %}
 {% if cards %}
-<p class="muted">{{ total }} card{{ '' if total == 1 else 's' }}. Quick add uses your free printing if you have one, else the newest regular paper printing; expand <i>printings</i> or open a card for a specific one.</p>
+<p class="muted">{{ total }} card{{ '' if total == 1 else 's' }}. {% if target %}Adding to the deck uses{% else %}Quick add uses{% endif %} your free printing if you have one, else the newest regular paper printing; expand <i>printings</i> or open a card for a specific one.</p>
 {{ m.view_switch() }}
 {% if view == 'images' %}
 <div class="cardgrid">{% for r in cards %}{{ m.card_tile(url_for('card', card_key=r.card_key) ~ '#add', r.name, r.image, r.owned or none) }}{% endfor %}</div>
 {% else %}
 <table class="grid">
-<tr>{{ m.sort_th('Card', 'name', f.sort) }}{{ m.sort_th('Cost', 'cost', f.sort) }}<th>Type</th>{{ m.sort_th('Owned', 'owned', f.sort) }}<th>Free</th><th>Printings</th>{% if locs %}<th>Quick add</th>{% endif %}</tr>
+<tr>{{ m.sort_th('Card', 'name', f.sort) }}{{ m.sort_th('Cost', 'cost', f.sort) }}<th>Type</th>{{ m.sort_th('Owned', 'owned', f.sort) }}<th>Free</th><th>Printings</th>{% if target %}<th>Add to {{ target.name }}</th>{% elif locs %}<th>Quick add</th>{% endif %}</tr>
 {% for r in cards %}
 <tr><td>{{ m.card_link(url_for('card', card_key=r.card_key) ~ '#add', r.name, r.image) }}</td>
 <td class="cost">{{ r.mana_cost|mana }}</td><td>{{ r.type_line or '' }}</td>
@@ -35,7 +36,10 @@
 <td>{{ p.set_name }} ({{ (p.released_at or '')[:4] }})</td><td class="muted">{{ (p.finishes|fromjson)|join('/') }}</td>
 <td class="num" title="owned / free">{% if p.owned %}{{ p.owned }} / {{ p.free }}{% endif %}</td></tr>{% endfor %}
 </table>{% if r.printings|length > 25 %}<a href="{{ url_for('card', card_key=r.card_key) }}#add">all {{ r.printings|length }} printings on the card page</a>{% endif %}</details></td>
-{% if locs %}<td><form class="inline" method="post" action="{{ url_for('stock_quick_add') }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+{% if target %}<td><form class="inline" method="post" action="{{ url_for('deck_add_card') }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="deck_id" value="{{ target.id }}">
+<input type="hidden" name="card_key" value="{{ r.card_key }}"><input type="hidden" name="next" value="{{ request.script_root ~ request.full_path }}">
+<input type="number" name="qty" value="1" min="1" aria-label="quantity"> <select name="board" aria-label="board">{% for b in BOARDS %}<option value="{{ b }}" {{ 'selected' if b == 'main' }}>{{ BOARD_NAMES[b] }}</option>{% endfor %}</select> <button>Add</button></form></td>
+{% elif locs %}<td><form class="inline" method="post" action="{{ url_for('stock_quick_add') }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
 <input type="hidden" name="card_key" value="{{ r.card_key }}"><input type="hidden" name="next" value="{{ request.script_root ~ request.full_path }}">
 <input type="number" name="qty" value="1" min="1" aria-label="quantity"> &rarr; <select name="location_id" aria-label="location">{% for l in locs %}<option value="{{ l.id }}" {{ 'selected' if l.id == last_location }}>{{ l.name }}</option>{% endfor %}</select> <button>Add</button></form></td>{% endif %}
 </tr>
@@ -50,7 +54,7 @@
 {% endfor %}
 </div>
 {% endif %}
-{% if not locs %}<p class="muted">Create a <a href="{{ url_for('locations_list') }}">location</a> to enable quick add.</p>{% endif %}
+{% if not locs and not target %}<p class="muted">Create a <a href="{{ url_for('locations_list') }}">location</a> to enable quick add.</p>{% endif %}
 {% else %}<p>No cards match.</p>{% endif %}
 {% else %}
 <p class="muted">Fill in any field. Name and text match word beginnings (<i>sol ri</i>); type words must all appear (<i>legendary elf</i>). Colours: <i>including</i> = has at least these, <i>exactly</i> = these and no others, <i>at most</i> = no other colours (use colour identity for commander decks). Digital-only and art-series printings are left out; tokens show up when the type includes "token".</p>

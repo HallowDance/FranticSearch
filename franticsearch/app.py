@@ -17,7 +17,7 @@ from flask import (
 from markupsafe import Markup, escape
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import __version__, db, decks, importer, ledger, locations, queries, scryfall, users
+from . import __version__, db, deckplan, decks, importer, ledger, locations, queries, scryfall, users
 from .ledger import CONDITION_NAMES, CONDITIONS, FINISHES, LANGUAGES, LedgerError, StockKey
 
 log = logging.getLogger(__name__)
@@ -28,8 +28,7 @@ PUBLIC_ENDPOINTS = {"login", "static", "shared_link"}
 # How card lists are shown: a text table (with actions) or a grid of card images.
 VIEWS = ("text", "images")
 
-# Default destination for collection imports (created on first use).
-UNSORTED = "Unsorted"
+UNSORTED = locations.UNSORTED
 
 def create_app(config: dict | None = None) -> Flask:
     app = Flask(__name__)
@@ -101,6 +100,7 @@ def create_app(config: dict | None = None) -> Flask:
             "BOARD_NAMES": decks.BOARD_NAMES,
             "FORMATS": decks.FORMATS,
             "last_location": session.get("last_location"),
+            "last_deck": session.get("last_deck"),
             "view": session.get("view", "text"),
             "user": g.get("user"),
             "csrf_token": _csrf_token,
@@ -248,10 +248,11 @@ def _deck_context(deck: sqlite3.Row) -> dict:
     keys = {"name": lambda s: s["name"].lower(), "cost": lambda s: (s["cmc"] or 0, s["name"].lower()),
             "qty": lambda s: (s["qty_wanted"], s["name"].lower())}
     key = keys.get(sort.lstrip("-"), keys["name"])
-    slots = decks.slots(g.db, deck["id"])
+    st = deckplan.state(g.db, deck)
+    slots = st["slots"]
     boards = {b: [s for s in slots if s["board"] == b] for b in decks.BOARDS}
     return dict(
-        deck=deck, slots=slots, sort=sort,
+        deck=deck, slots=slots, sort=sort, st=st,
         groups=[(g_, rows[::-1] if sort.startswith("-") else rows)
                 for g_, rows in decks.grouped(boards["main"], key)],
         others={b: sorted(boards[b], key=key, reverse=sort.startswith("-"))
@@ -356,6 +357,7 @@ def _register_routes(app: Flask) -> None:
             card_key=card_key, locs=_manual_locations(conn),
             history=queries.history(conn, _uid(), card_key=card_key)[:20],
             others=queries.shared_stock(conn, card_key, _uid()),
+            my_decks=decks.list_all(conn, _uid()),
         )
 
     # ---- adding cards
@@ -374,7 +376,8 @@ def _register_routes(app: Flask) -> None:
                 return redirect(url_for("card", card_key=hit["card_key"]))
         f = queries.CardSearch.from_args(request.args)
         cards, total = queries.search(g.db, f, _uid())
-        return render_template("add.html", f=f, cards=cards, total=total,
+        target = _my_deck(_int_arg("deck")) if request.args.get("deck") else None
+        return render_template("add.html", f=f, cards=cards, total=total, target=target,
                                page_size=queries.SEARCH_PAGE, locs=_manual_locations(g.db))
 
     @app.post("/stock/quick-add")
@@ -607,11 +610,7 @@ def _register_routes(app: Flask) -> None:
                 raise LedgerError("choose a CSV file")
             data = upload.read()
             if request.form.get("location_id") == "new":
-                loc = conn.execute(
-                    "SELECT id FROM locations WHERE owner_id = ? AND name = ? COLLATE NOCASE",
-                    (_uid(), UNSORTED),
-                ).fetchone()
-                loc_id = loc["id"] if loc else locations.create(conn, UNSORTED, "box", owner=_uid())
+                loc_id = locations.unsorted(conn, owner=_uid())
             else:
                 loc_id = _my_location_arg("location_id")
             import_id = importer.import_collection(conn, data, loc_id, filename=upload.filename)
@@ -698,11 +697,24 @@ def _register_routes(app: Flask) -> None:
             flash(str(e), "error")
         return redirect(url_for("import_view", import_id=u["import_id"]))
 
-    # ---- decks (read-only until phase 4)
+    # ---- decks (phase 4: editor, derived state, pull / return lists)
 
     @app.get("/decks")
     def decks_list():
-        return render_template("decks.html", decks=decks.list_all(g.db, _uid()))
+        conn = g.db
+        rows = [(d, deckplan.status(deckplan.state(conn, d))) for d in decks.list_all(conn, _uid())]
+        return render_template("decks.html", decks=rows)
+
+    @app.post("/decks")
+    def deck_create():
+        f = request.form
+        try:
+            deck_id = decks.create(g.db, f.get("name", ""), f.get("format", ""), owner=_uid())
+        except LedgerError as e:
+            flash(str(e), "error")
+            return redirect(url_for("decks_list"))
+        flash("Deck created. Add cards from the search or paste a list.", "ok")
+        return redirect(url_for("deck_view", deck_id=deck_id))
 
     @app.get("/decks/<int:deck_id>")
     def deck_view(deck_id: int):
@@ -714,11 +726,194 @@ def _register_routes(app: Flask) -> None:
         if loc["owner_id"] != _uid():
             return _render_shared(loc)
         imp = conn.execute("SELECT id FROM imports WHERE deck_id = ?", (deck_id,)).fetchone()
+        ctx = _deck_context(deck)
         return render_template(
-            "deck.html", **_deck_context(deck), loc=loc, readonly=False,
-            import_id=imp["id"] if imp else None,
+            "deck.html", **ctx, loc=loc, readonly=False,
+            paste=session.pop("paste") if (session.get("paste") or {}).get("deck") == deck_id else None,
+            import_id=imp["id"] if imp else None, status=deckplan.status(ctx["st"]),
+            stats=deckplan.analysis(ctx["st"], deck),
             deletable=not locations.has_history(conn, deck["location_id"]),
         )
+
+    @app.post("/decks/<int:deck_id>/edit")
+    def deck_edit(deck_id: int):
+        _my_deck(deck_id)
+        f = request.form
+        try:
+            decks.update(g.db, deck_id, f.get("name", ""), f.get("format", ""), f.get("notes", ""))
+            flash("Deck saved.", "ok")
+        except LedgerError as e:
+            flash(str(e), "error")
+        return redirect(url_for("deck_view", deck_id=deck_id))
+
+    @app.route("/decks/<int:deck_id>/slot", methods=["GET", "POST"])
+    def deck_slot(deck_id: int):
+        """Edit one slot: qty, proxies, board, printing, finish (or remove it)."""
+        conn = g.db
+        deck = _my_deck(deck_id)
+        sid = request.values.get("slot", "")
+        slot = decks.get_slot(conn, deck_id, sid)
+        if slot is None:
+            abort(404)
+        if request.method == "POST":
+            f = request.form
+            try:
+                qty = 0 if f.get("remove") else _form_qty()
+                decks.edit_slot(conn, deck_id, sid, qty=qty, proxy=_form_qty("proxy") if qty else 0,
+                                board=f.get("board", slot["board"]),
+                                printing_id=f.get("printing_id") or None, finish=f.get("finish") or None)
+                flash("Slot removed." if not qty else "Slot saved.", "ok")
+                return redirect(url_for("deck_view", deck_id=deck_id))
+            except LedgerError as e:
+                flash(str(e), "error")
+                return redirect(url_for("deck_slot", deck_id=deck_id, slot=sid))
+        p = conn.execute("SELECT * FROM printings WHERE scryfall_id = ?", (slot["printing_id"],)).fetchone()
+        card_key = p["oracle_id"] or p["scryfall_id"]
+        counts = {(r["printing_id"], r["finish"]): r for r in conn.execute(
+            """SELECT s.printing_id, s.finish, SUM(s.qty) AS owned,
+                      SUM(CASE WHEN l.type <> 'deck' THEN s.qty ELSE 0 END) AS free
+                 FROM stock s JOIN locations l ON l.id = s.location_id
+                 JOIN printings p ON p.scryfall_id = s.printing_id
+                WHERE l.owner_id = ? AND COALESCE(p.oracle_id, p.scryfall_id) = ?
+                GROUP BY s.printing_id, s.finish""", (_uid(), card_key))}
+        return render_template("deck_slot.html", deck=deck, slot=slot, sid=sid, p=p, card_key=card_key,
+                               printings=queries.card_printings(conn, card_key), counts=counts)
+
+    @app.post("/decks/add-card")
+    def deck_add_card():
+        """Add a card to a deck (``deck_id`` field): a given printing (card page) or the
+        default one (search)."""
+        conn = g.db
+        deck_id = _int_arg("deck_id")
+        if deck_id is None:
+            abort(404)
+        deck = _my_deck(deck_id)
+        f = request.form
+        try:
+            qty = _form_qty()
+            if f.get("printing_id"):
+                key = StockKey(f["printing_id"], f.get("finish", "nonfoil"))
+            else:
+                printings = queries.card_printings(conn, f.get("card_key", ""))
+                if not printings:
+                    raise LedgerError("unknown card")
+                key = importer.default_key(conn, printings, owner=_uid())
+            decks.add_slot(conn, deck_id, key, f.get("board", "main"), qty)
+            p = conn.execute("SELECT name, set_code, collector_number FROM printings WHERE scryfall_id = ?",
+                             (key.printing_id,)).fetchone()
+            session["last_deck"] = deck_id
+            flash(f"Added {qty}× {p['name']} ({p['set_code'].upper()} #{p['collector_number']}"
+                  f"{', ' + key.finish if key.finish != 'nonfoil' else ''}) to {deck['name']}"
+                  f" ({decks.BOARD_NAMES.get(f.get('board', 'main'), '')}).", "ok")
+        except LedgerError as e:
+            flash(str(e), "error")
+        return redirect(_back(url_for("deck_view", deck_id=deck_id)))
+
+    @app.post("/decks/<int:deck_id>/paste")
+    def deck_paste(deck_id: int):
+        _my_deck(deck_id)
+        session.pop("paste", None)
+        try:
+            added, left = importer.paste_into_deck(g.db, deck_id, request.form.get("text", ""),
+                                                   request.form.get("board", "main"), owner=_uid())
+            if added:
+                flash(f"Added {added} card{'' if added == 1 else 's'} to the deck.", "ok")
+            if left:
+                session["paste"] = {"deck": deck_id, "text": "\n".join(r for r, _ in left)[:1500],
+                                    "problems": [f"{r}: {p}"[:120] for r, p in left][:10]}
+                flash(f"{len(left)} line(s) didn't match; they are back in the box below.", "error")
+            elif not added:
+                flash("Nothing to add.", "error")
+        except LedgerError as e:
+            flash(str(e), "error")
+        return redirect(url_for("deck_view", deck_id=deck_id) + "#paste")
+
+    def _pull_page(deck_ids, deck=None):
+        lines, shortfalls = deckplan.pull_plan(g.db, _uid(), deck_ids)
+        return render_template("pull.html", deck=deck, lines=lines, shortfalls=shortfalls)
+
+    def _pull_post(deck_ids, back: str):
+        selected = None if request.form.get("all") else set(request.form.getlist("line"))
+        try:
+            batch, n = deckplan.confirm_pulls(g.db, _uid(), selected, deck_ids)
+            _done(f"Pulled {n} card{'' if n == 1 else 's'}.", batch)
+        except LedgerError as e:
+            flash(str(e), "error")
+        return redirect(back)
+
+    @app.get("/pull")
+    def pull_all():
+        return _pull_page(None)
+
+    @app.post("/pull")
+    def pull_all_post():
+        return _pull_post(None, url_for("pull_all"))
+
+    @app.get("/decks/<int:deck_id>/pull")
+    def deck_pull(deck_id: int):
+        return _pull_page([deck_id], _my_deck(deck_id))
+
+    @app.post("/decks/<int:deck_id>/pull")
+    def deck_pull_post(deck_id: int):
+        _my_deck(deck_id)
+        return _pull_post([deck_id], url_for("deck_pull", deck_id=deck_id))
+
+    @app.post("/decks/<int:deck_id>/retarget")
+    def deck_retarget(deck_id: int):
+        """Switch (part of) a short slot to another printing of the card."""
+        _my_deck(deck_id)
+        f = request.form
+        if decks.get_slot(g.db, deck_id, f.get("slot", "")) is None:
+            abort(404)
+        try:
+            decks.retarget(g.db, deck_id, f["slot"], StockKey(f.get("printing_id", ""), f.get("finish", "nonfoil")),
+                           _form_qty())
+            flash("Slot switched to that printing.", "ok")
+        except LedgerError as e:
+            flash(str(e), "error")
+        return redirect(_back(url_for("deck_pull", deck_id=deck_id)))
+
+    @app.get("/decks/<int:deck_id>/return")
+    def deck_return(deck_id: int):
+        conn = g.db
+        deck = _my_deck(deck_id)
+        return render_template("return.html", deck=deck, lines=deckplan.return_plan(conn, deck),
+                               locs=_manual_locations(conn), unsorted=UNSORTED)
+
+    @app.post("/decks/<int:deck_id>/return")
+    def deck_return_post(deck_id: int):
+        deck = _my_deck(deck_id)
+        f = request.form
+        picked = None if f.get("all") else set(f.getlist("line"))
+        choices = {}
+        for name, value in f.items():
+            if not name.startswith("to:"):
+                continue
+            line_id = name[3:]
+            if picked is not None and line_id not in picked:
+                continue
+            choices[line_id] = "unsorted" if value == "unsorted" else _my_location(_int_arg(name))["id"]
+        try:
+            batch, n = deckplan.confirm_returns(g.db, deck, choices, owner=_uid())
+            _done(f"Returned {n} card{'' if n == 1 else 's'}.", batch)
+        except LedgerError as e:
+            flash(str(e), "error")
+        return redirect(url_for("deck_return", deck_id=deck_id))
+
+    @app.post("/decks/<int:deck_id>/build")
+    def deck_build(deck_id: int):
+        deck = _my_deck(deck_id)
+        try:
+            batch, pulled, retargeted = deckplan.mark_built(g.db, deck, owner=_uid())
+            msg = f"Pulled {pulled} card{'' if pulled == 1 else 's'} into the deck"
+            msg += f"; {retargeted} slot cop{'y' if retargeted == 1 else 'ies'} switched to the printing you own." if retargeted else "."
+            st = deckplan.state(g.db, decks.get(g.db, deck_id))
+            if st["short"]:
+                msg += f" Still {st['short']} short: proxy or buy them."
+            _done(msg, batch)
+        except LedgerError as e:
+            flash(str(e), "error")
+        return redirect(url_for("deck_view", deck_id=deck_id))
 
     def _render_shared(loc: sqlite3.Row, anonymous: bool = False):
         """Read-only view of a shared location (or deck) for other users / share links."""
