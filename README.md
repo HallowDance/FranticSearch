@@ -2,7 +2,13 @@
 
 Self-hosted Magic: The Gathering collection & deck manager where **every physical card has a location** and decks are just locations. See [PLAN.md](PLAN.md) for the design and roadmap.
 
-Status: **Phase 2 (import)**: card database, locations, stock + ledger, collection browser, manual add / move / adjust / remove, Moxfield import (deck lists → read-only decks, collection CSV → a location) with a queue for lines that need a decision.
+Status: phases 1–3 shipped. Features:
+- **Collection:** card database, locations with filters, stock + ledger with batch undo, collection browser, manual add / move / adjust / remove, quick add, paste a list.
+- **Import:** Moxfield (deck lists → read-only decks; collection CSV → a location), with a queue for lines that need a decision.
+- **Search:** card search with your owned / free counts.
+- **Users:** a few users with separate collections; locations and decks can be shared.
+
+Next: the deck editor with pull / return lists (phase 4).
 
 ## Run with Docker
 
@@ -31,7 +37,9 @@ Other commands:
 | `python -m franticsearch check` | verify stock equals the ledger (exit 1 on mismatch) |
 | `python -m franticsearch user add NAME --admin` | create an account (the first admin adopts any existing data); `user passwd NAME`, `user list` |
 
-Settings (environment): `FS_DB` (database path, default `data/franticsearch.db`), `FS_AUTO_SYNC` (`1`/`0`, default `1`), `FS_SECRET_KEY` (optional; otherwise generated and stored in the DB), `FS_PROXY` (`1` when behind a reverse proxy: trusts its `X-Forwarded-For/-Proto/-Host/-Prefix` headers, so the app can live under a path such as `/franticsearch/`; default `0`).
+Settings (environment): `FS_DB` (database path, default `data/franticsearch.db`), `FS_AUTO_SYNC` (`1`/`0`, default `1`), `FS_SECRET_KEY` (optional; otherwise generated and stored in the DB), `FS_PROXY` (`1` when behind a reverse proxy: trusts its `X-Forwarded-For/-Proto/-Host/-Prefix` headers, so the app can live under a path such as `/franticsearch/`; default `0`), `FS_SECURE_COOKIE` (`1` = send the session cookie over HTTPS only).
+
+After the first start, create an account: `python -m franticsearch user add NAME --admin`.
 
 ## Tests
 
@@ -44,12 +52,14 @@ pytest
 | Path | What |
 |---|---|
 | `franticsearch/migrations/` | numbered SQL migrations (`PRAGMA user_version`) |
-| `franticsearch/ledger.py` | the only code that changes stock: acquire / move / adjust / sell + consistency check |
-| `franticsearch/locations.py` | location CRUD |
+| `franticsearch/ledger.py` | the only code that changes stock: acquire / move / adjust / sell / undo + consistency check |
+| `franticsearch/users.py` | accounts |
+| `franticsearch/locations.py` | location CRUD, archiving, sharing |
+| `franticsearch/cardtypes.py` | type line → supertypes / types / subtypes |
 | `franticsearch/decks.py` | decks, their deck locations and slots |
 | `franticsearch/importer.py` | Moxfield deck text / collection CSV import and the unresolved queue |
 | `franticsearch/scryfall.py` | bulk-data sync (`default_cards`) into `printings` |
-| `franticsearch/queries.py` | read-only queries for the UI |
+| `franticsearch/queries.py` | read-only queries for the UI, location filters, card search |
 | `franticsearch/app.py`, `templates/`, `static/` | Flask UI, plain HTML forms |
 
 Card data and images © Wizards of the Coast, provided by [Scryfall](https://scryfall.com). FranticSearch is unofficial Fan Content and is not affiliated with Wizards of the Coast.

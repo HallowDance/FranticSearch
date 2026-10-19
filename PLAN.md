@@ -170,13 +170,13 @@ Domain logic (`ledger.py`, later pull/return planning and import parsing) is fra
 | 1 | Foundation | Repo scaffold, Docker, schema + migrations, Scryfall sync, locations CRUD, stock + ledger with invariant check, collection browser, manual add/move/adjust | **Shipped** (PR #1). `docker compose up --build` itself not yet verified |
 | 2 | Import | Moxfield collection CSV, deck text import, unresolved queue | **Shipped** (PR #2). Collection CSV verified with a real Moxfield export on 2026-10-18 (337 rows, 0 unresolved) |
 | 2b | Users & sharing | Accounts (admin-created), login + CSRF, per-user collections, ownership checks on every route, location visibility (private / users / link), People page, others' copies on card pages | **Shipped** (PR #6) |
-| 3 | Card search | Local search over `printings` (name/type/text/colors/MV/set/legality), ownership-aware results | **Shipped** (branch `phase-3`) |
-| 4 | Decks | Deck editor (slots, boards, proxies, printing switch), live stats + legality, derived deck state, pull list, return list, "mark as built" | Partly: read-only deck page with type groups, mana curve, in-deck/free counts (PR #2, #4) |
+| 3 | Card search | Local search over `printings` (name/type/text/colors/MV/set/legality), ownership-aware results | **Shipped** (PR #8) |
+| 4 | Decks | Deck editor (slots, boards, proxies, printing switch), live stats + legality, derived deck state, pull list, return list, "mark as built" | **Next.** Partly there: read-only deck page with type groups, mana curve, in-deck/free counts (PR #2, #4) |
 | 5 | Shortfalls | Proxies, cross-deck buy list, exports | Not started |
 | 6 | Polish | Batch undo, ledger views, mobile layout pass, backup/restore | Partly: batch undo shipped (PR #4) |
-| later | — | Scryfall query syntax, public hosting + auth, prices, scanning | Hosting: reverse-proxy support shipped (PR #3) |
+| later | — | Scryfall query syntax, public hosting + auth, prices, scanning, trades between users | Hosting + auth done: reverse proxy (PR #3), in-app login (PR #6). Still to do: run the tunnel/server as permanent services; backups |
 
-### Shipped so far (2026-10-18)
+### Shipped so far (as of 2026-10-19)
 
 - **PR #1, Phase 1 foundation.** Plus a sync fix: Scryfall now serves `default_cards` only as gzipped JSON Lines (`jsonl_download_uri`); the importer reads that and legacy JSON arrays. Verified live: ~119k printings in ~25 s.
 - **PR #2, Phase 2 import.**
@@ -186,7 +186,7 @@ Domain logic (`ledger.py`, later pull/return planning and import parsing) is fra
   - Read-only Decks pages.
   - Card image on hover.
   - Decisions are in § Import / migration.
-- **PR #3, reverse-proxy support.** `FS_PROXY=1` trusts `X-Forwarded-*` including the prefix. Currently served at `https://theorycorner.com/franticsearch/` via nginx basic auth and a reverse SSH tunnel from the dev machine. The tunnel is not a permanent service yet.
+- **PR #3, reverse-proxy support.** `FS_PROXY=1` trusts `X-Forwarded-*` including the prefix. Served at `https://theorycorner.com/franticsearch/` via nginx and a reverse SSH tunnel from the dev machine (CLAUDE.md § Deployment). nginx basic auth was replaced by the in-app login in PR #6. The tunnel is not a permanent service yet.
 - **PR #4, UI improvements** (§ 6, § 7):
   - quick add
   - paste a list into a location
@@ -197,7 +197,12 @@ Domain logic (`ledger.py`, later pull/return planning and import parsing) is fra
   - deck type groups + mana curve
   - mana symbols
   - Text | Images view
+- **PR #5, plan update.** Shipped status, and the users & sharing design.
+- **PR #6, Phase 2b users & sharing** (§ Users & sharing): admin-created accounts, login + CSRF, separate collections with ownership checks on every route, private / users / link sharing, People page. Live with two users.
+- **PR #7, location filters** (§ 7): name, type, subtype, colour, MV, set, finish, qty on location pages and shared views.
+- **PR #8, Phase 3 card search** (§ 5): the Search page, with owned/free counts and quick add.
 
 ## Open questions
 
-None blocking. Revisit at hosting time: auth method (single password vs. external SSO/VPN) and deployment target.
+- None blocking.
+- Deployment target: today the app runs on the dev machine behind a reverse SSH tunnel. Revisit before relying on it: permanent services, or move the app onto the server with gunicorn as the Dockerfile does. Also scheduled backups of the SQLite file.
