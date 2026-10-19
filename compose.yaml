@@ -2,7 +2,7 @@ services:
   franticsearch:
     build: .
     ports:
-      - "6602:6602"   # LAN only for now: no authentication (see PLAN.md)
+      - "6602:6602"   # in-app login; behind a reverse proxy set FS_PROXY=1 (and FS_SECURE_COOKIE=1 for HTTPS)
     volumes:
       - ./data:/data
     environment:
