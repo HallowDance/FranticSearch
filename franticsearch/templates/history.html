@@ -1,18 +1,19 @@
 {% extends "base.html" %}{% import "macros.html" as m with context %}
 {% block title %}History{% endblock %}
 {% block body %}
-<h1>History</h1>
+<h1>History{% if card_name %} of <a href="{{ url_for('card', card_key=card_key) }}">{{ card_name }}</a>{% endif %}</h1>
 <form method="get" action="{{ url_for('history') }}">
+{% if card_key %}<input type="hidden" name="card" value="{{ card_key }}">{% endif %}
 Location <select name="location"><option value="">(any)</option>
 {% for l in locs %}<option value="{{ l.id }}" {{ 'selected' if location == l.id }}>{{ m.place(l.name, l.type) }}</option>{% endfor %}
-</select> <button>Filter</button>
+</select> <button>Filter</button>{% if card_key or location %} <a href="{{ url_for('history') }}">all history</a>{% endif %}
 </form>
 {% if rows %}
 <table class="grid">{{ m.movement_head(true) }}{% for h in rows %}{{ m.movement_row(h, true, loop.first or rows[loop.index0 - 1].batch_id != h.batch_id) }}{% endfor %}</table>
 <p class="muted">Undo reverses a whole action (all its lines) by recording opposite movements; it fails if the cards have moved on since. Imports can't be undone.</p>
 <div class="pager">
-{% if page > 1 %}<a href="{{ url_for('history', location=location or '', page=page - 1) }}">&laquo; newer</a>{% endif %}
-{% if rows|length == page_size %}<a href="{{ url_for('history', location=location or '', page=page + 1) }}">older &raquo;</a>{% endif %}
+{% if page > 1 %}<a href="{{ url_for('history', location=location or '', card=card_key or none, page=page - 1) }}">&laquo; newer</a>{% endif %}
+{% if rows|length == page_size %}<a href="{{ url_for('history', location=location or '', card=card_key or none, page=page + 1) }}">older &raquo;</a>{% endif %}
 </div>
 {% else %}<p class="muted">No movements recorded.</p>{% endif %}
 {% endblock %}

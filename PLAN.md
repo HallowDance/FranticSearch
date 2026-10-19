@@ -139,6 +139,22 @@ Each deck still owns one location of type `deck` (data model unchanged): it's wh
 - The deck page is the one page for a deck: besides the target list it shows **Physically in the deck** (the deck location's stock, open when something there isn't wanted) and the recent moves in and out.
 - If nesting is wanted later for user locations (Shelf / Box / Binder), that's a separate decision; this change doesn't block it.
 
+## Phases 5 & 6 as built (2026-10-19)
+
+Decided with the user:
+- **Buy list per printing, flag alternatives**: lines are per printing + finish (what `pull_plan` can't fill from free copies, after proxies), each with "N free in another printing" (a retarget could replace buying). A filter hides those lines; exports honour it.
+- **Backups: local, nightly.** `franticsearch-backup.timer` (systemd user timer, 03:30, `Persistent=true` so a sleeping laptop catches up on wake) runs `python -m franticsearch backup`: SQLite online backup API, gzipped to `<db dir>/backups/franticsearch-YYYYmmdd-HHMMSS.db.gz`, newest 14 kept (~49 MB each, mostly the Scryfall card cache). No off-machine copy and no download button (not chosen).
+- **Restore: CLI only.** `python -m franticsearch restore FILE [--force] [--port N]` refuses while something listens on the server port, checks the file (integrity, has FranticSearch tables), saves the current DB as `<db>.pre-restore-<ts>`, copies the backup in page by page (WAL-safe), runs pending migrations and the ledger check.
+- **Extras**: "Proxy all N short" on a deck; proxy print list; deck export.
+
+Details:
+- `exports.py` renders card lists: plain text, Moxfield (`1 Sol Ring (C21) 263 *F*`; deck exports get `Commander` / `Deck` / `Sideboard` / `Maybeboard` headers, which the deck importer reads back), TCGplayer mass entry (`1 Sol Ring [C21]`, no finish), CSV (Moxfield collection columns, plus `Board` for decks).
+- **Buy list** `/buy` (link on the Decks page): table + the list in a textarea in the chosen format, and downloads (`/buy/export?format=…&download=1`). Lines name the decks that need them.
+- **Deck export** `/decks/<id>/export?format=…` (shown inline, `download=1` to save); `what=proxies` exports only proxied copies (for a proxy printing site). Owner only.
+- **Ledger views**: History filters by location (decks as "Decks / <name>") and by card (`/history?card=<key>`); card, location and deck pages link to their full history, which has undo.
+- **Phone layout pass** (checked with headless Chromium at 390 px on a copy of the live DB): row forms (location actions, quick add, alternatives, return destinations) stay on one line so rows stay short and the table scrolls sideways inside its box; the page itself never scrolls sideways. A deck's Qty links to its edit page, so editing works without scrolling the table. Textareas fill the width.
+- The System page lists the backups.
+
 ## Users & sharing (phase 2b)
 
 Decided 2026-10-18: a few people on one instance, each with a **separate collection**; locations (incl. decks) can be shared.
@@ -197,9 +213,9 @@ Domain logic (`ledger.py`, later pull/return planning and import parsing) is fra
 | 2b | Users & sharing | Accounts (admin-created), login + CSRF, per-user collections, ownership checks on every route, location visibility (private / users / link), People page, others' copies on card pages | **Shipped** (PR #6) |
 | 3 | Card search | Local search over `printings` (name/type/text/colors/MV/set/legality), ownership-aware results | **Shipped** (PR #8) |
 | 4 | Decks | Deck editor (slots, boards, proxies, printing switch), live stats + legality, derived deck state, pull list, return list, "mark as built" | **Built** (branch `phase-4`), see § Phase 4 as built |
-| 5 | Shortfalls | Proxies, cross-deck buy list, exports | **Next.** Proxies per slot already exist (phase 4) |
-| 6 | Polish | Batch undo, ledger views, mobile layout pass, backup/restore | Partly: batch undo shipped (PR #4) |
-| later | — | Scryfall query syntax, public hosting + auth, prices, scanning, trades between users | Hosting + auth done: reverse proxy (PR #3), in-app login (PR #6). Still to do: run the tunnel/server as permanent services; backups |
+| 5 | Shortfalls | Proxies, cross-deck buy list, exports | **Built** (branch `phase-5-6`), see § Phases 5 & 6 as built |
+| 6 | Polish | Batch undo, ledger views, mobile layout pass, backup/restore | **Built** (branch `phase-5-6`); batch undo shipped earlier (PR #4) |
+| later | — | Scryfall query syntax, public hosting + auth, prices, scanning, trades between users | Hosting + auth done: reverse proxy (PR #3), in-app login (PR #6). Still to do: run the tunnel/server as permanent services (PR #10); nightly local backups built in phase 6 |
 
 ### Shipped so far (as of 2026-10-19)
 

@@ -15,13 +15,15 @@ FranticSearch: self-hosted MTG collection & deck manager where **every physical 
 
 ```sh
 python3 -m venv .venv && . .venv/bin/activate && pip install -e ".[dev,serve]"
-pytest                                   # full suite, ~10 s, no network (91 tests)
+pytest                                   # full suite, ~12 s, no network (98 tests)
 python -m franticsearch serve            # dev server http://127.0.0.1:6602 (auto-syncs Scryfall)
 python -m franticsearch serve --no-auto-sync
 python -m franticsearch migrate          # apply pending migrations (serve also does this)
 python -m franticsearch sync [--force]   # Scryfall default_cards → printings (~80 MB .jsonl.gz, ~25 s)
 python -m franticsearch sync --file x.jsonl.gz   # import a local bulk file (.jsonl/.json, gz or not)
 python -m franticsearch check            # stock vs ledger invariant (exit 1 on mismatch)
+python -m franticsearch backup [--dir D] [--keep 14]   # gzipped online backup → data/backups/
+python -m franticsearch restore FILE [--force]         # stop the server first; saves the current DB
 python -m franticsearch user add NAME [--admin] [--password-stdin]   # first admin adopts ownerless data
 python -m franticsearch user passwd NAME [--password-stdin] | user list
 docker compose up -d --build             # production-style, DB in ./data (never actually run yet)
@@ -39,10 +41,12 @@ Env: `FS_DB` (default `data/franticsearch.db`), `FS_AUTO_SYNC` (default `1`), `F
 | `users.py` | Accounts: create (first admin adopts ownerless locations/imports), authenticate (constant-ish time), set password |
 | `locations.py` | Location CRUD (owner, names unique per owner), archive, visibility (`private` < `users` < `link`) + share tokens, `can_view`, `shared()` for the People page |
 | `decks.py` | Deck + its same-named deck location (`update` renames both), `add_slot`, `edit_slot` (qty / proxy / board / printing / finish; merges, qty 0 removes), `retarget`, slot ids `printing\|finish\|cond\|lang\|board`, `slots()` (in-deck / free / where / any-printing, scoped to the deck owner), `grouped()` by card type, `mana_curve()`, delete (only if the deck location has no history). `BOARDS`, `FORMATS`, `COMMANDER_FORMATS`. |
-| `deckplan.py` | Phase 4, computed never stored: `state()` (per-slot in_deck / short, excess lines), `pull_plan()` / `confirm_pulls()` (one deck or all; free copies planned once), `return_plan()` / `confirm_returns()` (default = last pull source, else Unsorted), `mark_built()` (retarget to an owned free printing, then pull), `analysis()` (colours, legality, copy limits, size, commander identity). Confirm functions recompute the plan, so stale forms can't over-move. |
+| `deckplan.py` | Phases 4–5, computed never stored: `buy_list()`, `proxy_short()`, `state()` (per-slot in_deck / short, excess lines), `pull_plan()` / `confirm_pulls()` (one deck or all; free copies planned once), `return_plan()` / `confirm_returns()` (default = last pull source, else Unsorted), `mark_built()` (retarget to an owned free printing, then pull), `analysis()` (colours, legality, copy limits, size, commander identity). Confirm functions recompute the plan, so stale forms can't over-move. |
 | `importer.py` | Moxfield deck text / collection CSV: parse → `resolve()` (set+cn → name+set → `default_key()` = owner's free copy, else newest released regular paper printing) → import (per-owner sha256 dedupe). Unresolved queue fix/dismiss. `paste_into()` for quick list entry. |
 | `cardtypes.py` | Type line → (supertypes, card types, subtypes) over all faces |
 | `queries.py` | Read-only queries. Collection / location / history / totals per owner; `shared_stock`; `StockFilter` (location filters, in Python); `CardSearch` + `search()` (phase 3, SQL); whitelisted `order_by()` for `?sort=` |
+| `exports.py` | Card lists as text: `text`, `moxfield` (deck exports with board headers the importer reads back), `tcgplayer`, `csv`. Used by the buy list, deck export, proxy list. |
+| `backup.py` | `backup()` (SQLite backup API → gzip, prune to N), `list_backups()`, `restore()` (port check, integrity check, saves current DB, migrate + ledger check). Nightly via `deploy/systemd/franticsearch-backup.timer`. |
 | `scryfall.py` | Bulk sync: gzipped JSONL from `jsonl_download_uri` (legacy JSON arrays via `ijson`). Upserts, never deletes printings. Stores `face_name`, `set_type`, `digital`, `promo` for default-printing choice. |
 | `app.py` + `templates/` + `static/style.css` | Flask, POST-redirect-GET, flash messages. `macros.html`: card links with hover image, tiles, sort headers, view switch, stock actions, filters, sharing box. |
 | `tests/` | pytest. `conftest.py`: `conn` fixture creates admin user `alice` (`ALICE` = 1) and imports `fixtures_default_cards.json` (SOL_C21 / SOL_CMM / DELVER / BOLT). `client` is logged in as alice with CSRF off; use `login_as(client, uid)` for others. `test_users.py` covers isolation; `test_filters.py`, `test_importer.py`, `test_web.py`. |
@@ -97,14 +101,15 @@ Keep domain logic framework-free (unit-testable) and the Flask layer thin.
   - #6 phase 2b users & sharing
   - #7 location filters
   - #8 phase 3 card search
-- Open: #10 systemd services for server + tunnel; phase 4 decks (branch `phase-4`).
-- 91 tests pass.
+- Open PRs: #10 systemd services for server + tunnel; #11 phase 4 decks (`phase-4`); #12 phases 5 & 6 (`phase-5-6`, stacked on `phase-4`: merge #11 first).
+- 98 tests pass.
 - Verified on real data: Scryfall sync (118,893 printings); Moxfield deck text, both exports (100/100); Moxfield collection CSV (337 rows, 0 unresolved, in "Rares Binder").
 - **Unverified**: `docker compose up --build` itself. There's no container runtime on the dev machine; the Dockerfile's steps were replayed outside a container.
 - **Phase 4, decks** (branch `phase-4`): editor (new deck, settings, slot page with printing switch, add from search / card page / pasted list), derived status, pull list (per deck and all decks, with "use this printing"), return list, mark as built, stats + format checks. Verified on a copy of the live DB (mark as built: 4 retargeted, 4 pulled, check OK).
-- **Next: Phase 5, shortfalls** (PLAN.md § Phases): cross-deck buy list and exports.
+- **Phases 5 & 6** (branch `phase-5-6`, stacked on `phase-4`): buy list + exports, proxy all short, proxy list, deck export, history by card, backups (timer installed and enabled) + CLI restore, phone layout pass. See PLAN.md § Phases 5 & 6 as built.
+- **Next**: everything in PLAN.md's phase table is built; remaining are the "later" items (Scryfall query syntax, trades, prices) and the to-dos below.
 - Other open to-dos:
   - Make the tunnel/server permanent.
-  - Backups (the app is internet-facing now).
+  - Off-machine copies of the backups (only local ones exist).
   - `FS_SECURE_COOKIE=1` once only HTTPS is used.
   - Trades between users (PLAN.md § Users & sharing, "later").

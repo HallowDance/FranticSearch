@@ -17,7 +17,7 @@ from flask import (
 from markupsafe import Markup, escape
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import __version__, db, deckplan, decks, importer, ledger, locations, queries, scryfall, users
+from . import __version__, backup, db, deckplan, decks, exports, importer, ledger, locations, queries, scryfall, users
 from .ledger import CONDITION_NAMES, CONDITIONS, FINISHES, LANGUAGES, LedgerError, StockKey
 
 log = logging.getLogger(__name__)
@@ -99,6 +99,7 @@ def create_app(config: dict | None = None) -> Flask:
             "BOARDS": decks.BOARDS,
             "BOARD_NAMES": decks.BOARD_NAMES,
             "FORMATS": decks.FORMATS,
+            "EXPORT_FORMATS": exports.FORMATS,
             "last_location": session.get("last_location"),
             "last_deck": session.get("last_deck"),
             "view": session.get("view", "text"),
@@ -920,6 +921,60 @@ def _register_routes(app: Flask) -> None:
             flash(str(e), "error")
         return redirect(url_for("deck_view", deck_id=deck_id))
 
+    # ---- shortfalls (phase 5): buy list, exports, proxies
+
+    def _text_download(text: str, filename: str, fmt: str):
+        """A list as text: shown in the browser, or downloaded with ?download=1."""
+        mimetype = "text/csv" if fmt == "csv" else "text/plain"
+        resp = app.response_class(text, mimetype=mimetype)
+        if request.args.get("download"):
+            safe = re.sub(r"[^\w .-]", "", filename, flags=re.ASCII).strip() or "list"
+            resp.headers["Content-Disposition"] = f'attachment; filename="{safe}.{"csv" if fmt == "csv" else "txt"}"'
+        return resp
+
+    def _export_format() -> str:
+        fmt = request.args.get("format", "moxfield")
+        if fmt not in exports.FORMATS:
+            abort(404)
+        return fmt
+
+    def _buy_lines() -> list[dict]:
+        lines = deckplan.buy_list(g.db, _uid())
+        return [l for l in lines if not l["alt_free"]] if request.args.get("hide_alt") else lines
+
+    @app.get("/buy")
+    def buy_list():
+        lines = _buy_lines()
+        fmt = request.args.get("format", "moxfield")
+        fmt = fmt if fmt in exports.FORMATS else "moxfield"
+        return render_template("buy.html", lines=lines, fmt=fmt, text=exports.render(lines, fmt),
+                               hide_alt=bool(request.args.get("hide_alt")))
+
+    @app.get("/buy/export")
+    def buy_export():
+        fmt = _export_format()
+        return _text_download(exports.render(_buy_lines(), fmt), "buy-list", fmt)
+
+    @app.get("/decks/<int:deck_id>/export")
+    def deck_export(deck_id: int):
+        """The deck's list (``what=list``, by board) or its proxies (``what=proxies``)."""
+        deck = _my_deck(deck_id)
+        fmt = _export_format()
+        slots = decks.slots(g.db, deck_id)
+        if request.args.get("what") == "proxies":
+            items = [{**dict(s), "qty": s["qty_proxy"]} for s in slots if s["qty_proxy"]]
+            return _text_download(exports.render(items, fmt), f"{deck['name']} proxies", fmt)
+        items = [{**dict(s), "qty": s["qty_wanted"]} for s in slots]
+        return _text_download(exports.render(items, fmt, boards=True), deck["name"], fmt)
+
+    @app.post("/decks/<int:deck_id>/proxy-short")
+    def deck_proxy_short(deck_id: int):
+        deck = _my_deck(deck_id)
+        n = deckplan.proxy_short(g.db, deck)
+        flash(f"Marked {n} short card{'' if n == 1 else 's'} as proxies." if n else "Nothing is short.",
+              "ok" if n else "error")
+        return redirect(url_for("deck_view", deck_id=deck_id))
+
     def _render_shared(loc: sqlite3.Row, anonymous: bool = False):
         """Read-only view of a shared location (or deck) for other users / share links."""
         conn = g.db
@@ -1036,10 +1091,13 @@ def _register_routes(app: Flask) -> None:
     def history():
         conn = g.db
         loc = _int_arg("location")
+        card_key = request.args.get("card", "")
+        printings = queries.card_printings(conn, card_key) if card_key else []
         page = _int_arg("page", 1) or 1
         return render_template(
-            "history.html", rows=queries.history(conn, _uid(), location_id=loc, page=page),
-            locs=locations.list_all(conn, _uid(), archived=None), location=loc, page=page,
+            "history.html", locs=locations.list_all(conn, _uid(), archived=None), location=loc,
+            rows=queries.history(conn, _uid(), location_id=loc, card_key=card_key or None, page=page),
+            card_key=card_key, card_name=printings[0]["name"] if printings else "", page=page,
             page_size=queries.PAGE_SIZE,
         )
 
@@ -1053,6 +1111,9 @@ def _register_routes(app: Flask) -> None:
             schema=db.schema_version(conn), totals=queries.totals(conn, None),
             problems=ledger.check(conn) if request.args.get("check") else None,
             db_path=app.config["DATABASE"], auto_sync=app.config["AUTO_SYNC"],
+            backups=[(p.name, p.stat().st_size, time.strftime("%Y-%m-%d %H:%M", time.localtime(p.stat().st_mtime)))
+                     for p in backup.list_backups(backup.default_dir(app.config["DATABASE"]))],
+            backup_dir=backup.default_dir(app.config["DATABASE"]),
         )
 
     @app.post("/system/sync")

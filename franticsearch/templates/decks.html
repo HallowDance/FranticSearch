@@ -10,7 +10,7 @@
 <td class="num">{% if d.unresolved %}<b>{{ d.unresolved }}</b>{% else %}0{% endif %}</td></tr>
 {% endfor %}
 </table>
-<p><a href="{{ url_for('pull_all') }}">Pull list for all decks</a></p>
+<p><a href="{{ url_for('pull_all') }}">Pull list for all decks</a> &middot; <a href="{{ url_for('buy_list') }}">Buy list</a></p>
 {% else %}<p class="muted">No decks yet.</p>{% endif %}
 <h2>New deck</h2>
 <form method="post" action="{{ url_for('deck_create') }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">

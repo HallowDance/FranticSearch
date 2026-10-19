@@ -30,6 +30,16 @@
 </table>
 {% endif %}
 
+<h2>Backups</h2>
+{% if backups %}
+<table class="grid">
+<tr><th>File</th><th>Size</th><th>Written</th></tr>
+{% for name, size, when in backups %}<tr><td class="mono">{{ name }}</td><td class="num">{{ '%.1f'|format(size / 1e6) }} MB</td><td>{{ when }}</td></tr>{% endfor %}
+</table>
+{% else %}<p class="flash error">No backups yet in <span class="mono">{{ backup_dir }}</span>.</p>{% endif %}
+<p class="muted">Written nightly by the <span class="mono">franticsearch-backup.timer</span> user service (newest 14 kept), or by hand with <code>python -m franticsearch backup</code>.
+Restore from the command line only: stop the server, then <code>python -m franticsearch restore FILE</code>.</p>
+
 <h2>Database</h2>
 <table class="grid kv">
 <tr><th>File</th><td class="mono">{{ db_path }}</td></tr>

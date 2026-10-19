@@ -12,6 +12,11 @@
 &middot; <a href="{{ url_for('add', deck=deck.id) }}">Add cards</a> &middot; <a href="#paste">paste a list</a>
 &middot; <a href="#contents">physically in the deck</a>
 {% if import_id %}&middot; imported in <a href="{{ url_for('import_view', import_id=import_id) }}">import #{{ import_id }}</a>{% endif %}</p>
+{% if st.short %}
+<form class="inline" method="post" action="{{ url_for('deck_proxy_short', deck_id=deck.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+<button title="Set proxies to cover every card that's still short">Proxy all {{ st.short }} short</button></form>
+<span class="muted">or see what to <a href="{{ url_for('buy_list') }}">buy</a></span>
+{% endif %}
 {% if import_id and st.short %}
 <form method="post" action="{{ url_for('deck_build', deck_id=deck.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
 <button>Mark as built</button> <span class="muted">the cards physically live in this deck: pull every free copy it wants (switching slots to the printing you own where needed)</span></form>
@@ -25,7 +30,7 @@
 <tr>{{ m.sort_th('Qty', 'qty', sort) }}{{ m.sort_th('Card', 'name', sort) }}{{ m.sort_th('Cost', 'cost', sort) }}<th>Printing</th>{% if not readonly %}<th>In deck</th><th>Proxy</th><th>Short</th><th>Free</th><th>Where (free)</th><th></th>{% endif %}</tr>
 {%- endmacro %}
 {% macro slot_row(s) -%}
-<tr><td class="num">{{ s.qty_wanted }}</td>
+<tr><td class="num">{% if readonly %}{{ s.qty_wanted }}{% else %}<a href="{{ url_for('deck_slot', deck_id=deck.id, slot=s.sid) }}" title="edit">{{ s.qty_wanted }}</a>{% endif %}</td>
 <td>{{ m.card_link(card_href(s)|trim, s.name, s.image) }}</td>
 <td class="cost">{{ s.mana_cost|mana }}</td>
 <td>{{ s.set_code|upper }} #{{ s.collector_number }} {{ m.key_tags(s) }}</td>
@@ -95,7 +100,7 @@
 {% if history %}
 <details><summary>Recent moves in and out ({{ history|length }})</summary>
 <table class="grid">{{ m.movement_head() }}{% for h in history %}{{ m.movement_row(h) }}{% endfor %}</table>
-<p class="muted">Undo from the <a href="{{ url_for('history', location=deck.location_id) }}">History</a> page.</p>
+<p><a href="{{ url_for('history', location=deck.location_id) }}">Full history of this deck</a> (with undo)</p>
 </details>
 {% endif %}
 <h2 id="paste">Add cards from a list</h2>
@@ -105,6 +110,10 @@
 Board <select name="board">{% for b in BOARDS %}<option value="{{ b }}" {{ 'selected' if b == 'main' }}>{{ BOARD_NAMES[b] }}</option>{% endfor %}</select>
 <button>Add to deck</button> <span class="muted">Moxfield/MTGA lines; section headers (Commander, Sideboard...) override the board. Lines without a set get your free printing, else the newest one. This only changes the list; cards move via the pull list.</span>
 </form>
+<h2>Export</h2>
+<p>Deck list: {% for k, v in EXPORT_FORMATS.items() if k != 'tcgplayer' %}<a href="{{ url_for('deck_export', deck_id=deck.id, format=k) }}">{{ v }}</a> (<a href="{{ url_for('deck_export', deck_id=deck.id, format=k, download=1) }}">download</a>){{ ' · ' if not loop.last }}{% endfor %}
+<br><span class="muted">Moxfield text has board headers; paste it into Moxfield or back into an import here.</span></p>
+{% if st.proxies %}<p>Proxies to print ({{ st.proxies }}): <a href="{{ url_for('deck_export', deck_id=deck.id, what='proxies', format='moxfield') }}">Moxfield</a> &middot; <a href="{{ url_for('deck_export', deck_id=deck.id, what='proxies', format='text') }}">plain text</a></p>{% endif %}
 <h2>Deck settings</h2>
 <form method="post" action="{{ url_for('deck_edit', deck_id=deck.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
 <table class="kv">

@@ -36,10 +36,10 @@
 <td>{{ p.set_name }} ({{ (p.released_at or '')[:4] }})</td><td class="muted">{{ (p.finishes|fromjson)|join('/') }}</td>
 <td class="num" title="owned / free">{% if p.owned %}{{ p.owned }} / {{ p.free }}{% endif %}</td></tr>{% endfor %}
 </table>{% if r.printings|length > 25 %}<a href="{{ url_for('card', card_key=r.card_key) }}#add">all {{ r.printings|length }} printings on the card page</a>{% endif %}</details></td>
-{% if target %}<td><form class="inline" method="post" action="{{ url_for('deck_add_card') }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="deck_id" value="{{ target.id }}">
+{% if target %}<td class="act"><form class="inline" method="post" action="{{ url_for('deck_add_card') }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="deck_id" value="{{ target.id }}">
 <input type="hidden" name="card_key" value="{{ r.card_key }}"><input type="hidden" name="next" value="{{ request.script_root ~ request.full_path }}">
 <input type="number" name="qty" value="1" min="1" aria-label="quantity"> <select name="board" aria-label="board">{% for b in BOARDS %}<option value="{{ b }}" {{ 'selected' if b == 'main' }}>{{ BOARD_NAMES[b] }}</option>{% endfor %}</select> <button>Add</button></form></td>
-{% elif locs %}<td><form class="inline" method="post" action="{{ url_for('stock_quick_add') }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+{% elif locs %}<td class="act"><form class="inline" method="post" action="{{ url_for('stock_quick_add') }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
 <input type="hidden" name="card_key" value="{{ r.card_key }}"><input type="hidden" name="next" value="{{ request.script_root ~ request.full_path }}">
 <input type="number" name="qty" value="1" min="1" aria-label="quantity"> &rarr; <select name="location_id" aria-label="location">{% for l in locs %}<option value="{{ l.id }}" {{ 'selected' if l.id == last_location }}>{{ l.name }}</option>{% endfor %}</select> <button>Add</button></form></td>{% endif %}
 </tr>

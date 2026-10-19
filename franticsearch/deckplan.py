@@ -373,3 +373,42 @@ def analysis(st: dict, deck: sqlite3.Row) -> dict:
                     if s["board"] != "commander" and not set(json.loads(s["color_identity"] or "[]")) <= identity:
                         warnings.append(f"{s['name']} is outside the commander's colour identity ({shown}).")
     return dict(counts=counts, colours=colours, warnings=warnings)
+
+
+# --------------------------------------------------------------------------- shortfalls (phase 5)
+
+def buy_list(conn: sqlite3.Connection, owner: int) -> list[dict]:
+    """What all decks are still short after free copies and proxies, per printing + finish.
+
+    Each line: qty, card fields, ``decks`` [(deck id, name, qty)], and ``alt_free`` =
+    free copies of other printings of the card (a retarget might do instead of buying).
+    """
+    _, shortfalls = pull_plan(conn, owner)
+    lines: dict[tuple[str, str], dict] = {}
+    for sf in shortfalls:
+        s = sf.slot
+        line = lines.setdefault(_pf(s), {
+            "qty": 0, "name": s["name"], "set_code": s["set_code"], "collector_number": s["collector_number"],
+            "finish": s["finish"], "printing_id": s["printing_id"], "card_key": s["card_key"],
+            "image": s["image"], "decks": [],
+            # the same free pool for every shortfall, so one card's alternatives count once
+            "alt_free": sum(a["qty"] for a in sf.alternatives),
+        })
+        line["qty"] += sf.qty
+        line["decks"].append((sf.deck_id, sf.deck_name, sf.qty))
+    return sorted(lines.values(), key=lambda l: (l["name"].lower(), l["set_code"]))
+
+
+def proxy_short(conn: sqlite3.Connection, deck: sqlite3.Row) -> int:
+    """Cover everything the deck is still short with proxies. Returns proxies added."""
+    added = 0
+    with transaction(conn):
+        for s in state(conn, deck)["slots"]:
+            if s["short"]:
+                conn.execute(
+                    "UPDATE deck_slots SET qty_proxy = qty_proxy + ? WHERE deck_id = ? AND printing_id = ?"
+                    " AND finish = ? AND condition = ? AND lang = ? AND board = ?",
+                    (s["short"], deck["id"], s["printing_id"], s["finish"], s["condition"], s["lang"], s["board"]),
+                )
+                added += s["short"]
+    return added

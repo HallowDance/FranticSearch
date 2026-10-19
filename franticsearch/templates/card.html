@@ -21,7 +21,7 @@
 <td>{{ m.card_link(url_for('card', card_key=card_key, printing=s.printing_id), s.set_code|upper ~ ' #' ~ s.collector_number, s.image) }} {{ m.key_tags(s) }}</td>
 <td>{{ m.loc_link(s.location_id, s.location_name, s.location_type) }}{% if s.location_type != 'deck' %} <span class="muted">({{ s.location_type }})</span>{% endif %}</td>
 <td class="num">{{ s.qty }}</td>
-<td>{% if s.location_type == 'deck' %}<span class="muted">use the deck's pull/return lists</span>{% else %}{{ m.stock_actions(s, locs) }}{% endif %}</td>
+<td class="act">{% if s.location_type == 'deck' %}<span class="muted">use the deck's pull/return lists</span>{% else %}{{ m.stock_actions(s, locs) }}{% endif %}</td>
 </tr>
 {% endfor %}
 </table>
@@ -81,6 +81,7 @@ Language <select name="lang">{% for code, lname in LANGUAGES.items() %}<option v
 {% if history %}
 <h2>Recent history</h2>
 <table class="grid">{{ m.movement_head() }}{% for h in history %}{{ m.movement_row(h) }}{% endfor %}</table>
+<p><a href="{{ url_for('history', card=card_key) }}">Full history of this card</a> (with undo)</p>
 {% endif %}
 <div class="clear"></div>
 {% endblock %}

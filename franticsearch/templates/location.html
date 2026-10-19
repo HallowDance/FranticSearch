@@ -25,7 +25,7 @@
 <td class="cost">{{ s.mana_cost|mana }}</td>
 <td>{{ s.set_code|upper }} #{{ s.collector_number }} {{ m.key_tags(s) }}</td>
 <td class="num">{{ s.qty }}</td>
-{% if manual %}<td>{{ m.stock_actions(s, locs) }}</td>{% endif %}
+{% if manual %}<td class="act">{{ m.stock_actions(s, locs) }}</td>{% endif %}
 </tr>
 {% endfor %}
 </table>
