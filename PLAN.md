@@ -154,7 +154,7 @@ Decided with the user:
 
 Details:
 - `exports.py` renders card lists: plain text, Moxfield (`1 Sol Ring (C21) 263 *F*`; deck exports get `Commander` / `Deck` / `Sideboard` / `Maybeboard` headers, which the deck importer reads back), TCGplayer mass entry (`1 Sol Ring [C21]`, no finish), CSV (Moxfield collection columns, plus `Board` for decks).
-- **Buy list** `/buy` (link on the Decks page): table + the list in a textarea in the chosen format, and downloads (`/buy/export?format=…&download=1`). Lines name the decks that need them.
+- **Buy list** `/buy` (link on the Decks page): the list in a textarea above the table, with one link per format ("Copy as: Moxfield · Plain text · …"; a dropdown + button looked broken without JS, fixed 2026-10-19) and a download link (`/buy/export?format=…&download=1`). Lines name the decks that need them.
 - **Deck export** `/decks/<id>/export?format=…` (shown inline, `download=1` to save); `what=proxies` exports only proxied copies (for a proxy printing site). Owner only.
 - **Ledger views**: History filters by location (decks as "Decks / <name>") and by card (`/history?card=<key>`); card, location and deck pages link to their full history, which has undo.
 - **Phone layout pass** (checked with headless Chromium at 390 px on a copy of the live DB): row forms (location actions, quick add, alternatives, return destinations) stay on one line so rows stay short and the table scrolls sideways inside its box; the page itself never scrolls sideways. A deck's Qty links to its edit page, so editing works without scrolling the table. Textareas fill the width.
@@ -267,6 +267,9 @@ Operations:
 - `FS_SECURE_COOKIE=1` once the site is only used over HTTPS.
 - `loginctl enable-linger` if the site should run while the owner is logged out (it still stops while the laptop sleeps).
 - Verify `docker compose up --build` in a real container, or move the app onto the server (gunicorn), if the laptop's uptime isn't enough.
+
+Considered and dropped (2026-10-19):
+- A proxy **PDF** (card images 9 per page for printing): the user decided it isn't needed; the text proxy list for proxy printing sites stays.
 
 Smaller ideas noticed while building (not decided):
 - Nested user locations (Shelf / Box / Binder); § Decks in the UI leaves room for it.

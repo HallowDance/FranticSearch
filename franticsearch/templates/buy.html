@@ -5,11 +5,16 @@
 <p class="muted">What your decks are still short after free copies (see the <a href="{{ url_for('pull_all') }}">pull list</a>) and proxies, per printing.
 "Other printing free" means you could switch the slot to a printing you own instead of buying (pull list: <i>use this printing</i>).</p>
 <form class="filters" method="get" action="{{ url_for('buy_list') }}">
+<input type="hidden" name="format" value="{{ fmt }}">
 <label><input type="checkbox" name="hide_alt" value="1" {{ 'checked' if hide_alt }}> hide cards I have free in another printing</label>
-<label>Format <select name="format">{% for k, v in EXPORT_FORMATS.items() %}<option value="{{ k }}" {{ 'selected' if k == fmt }}>{{ v }}</option>{% endfor %}</select></label>
-<button>Show</button>
+<button>Apply</button>
 </form>
 {% if lines %}
+<h2>{{ lines|sum(attribute='qty') }} cards to buy</h2>
+<p>Copy as:
+{% for k, v in EXPORT_FORMATS.items() %}{% if k == fmt %}<b>[{{ v }}]</b>{% else %}<a href="{{ url_for('buy_list', format=k, hide_alt=1 if hide_alt else none) }}">{{ v }}</a>{% endif %}{{ ' · ' if not loop.last }}{% endfor %}
+&middot; <a href="{{ url_for('buy_export', format=fmt, download=1, hide_alt=1 if hide_alt else none) }}">download</a></p>
+<textarea rows="8" cols="60" readonly aria-label="buy list as {{ EXPORT_FORMATS[fmt] }}">{{ text }}</textarea>
 <table class="grid">
 <tr><th>Qty</th><th>Card</th><th>Printing</th><th>For</th><th>Other printing free</th></tr>
 {% for l in lines %}
@@ -20,8 +25,5 @@
 <td class="num">{% if l.alt_free %}<a href="{{ url_for('pull_all') }}">{{ l.alt_free }}</a>{% endif %}</td></tr>
 {% endfor %}
 </table>
-<p><b>{{ lines|sum(attribute='qty') }} cards.</b> {{ EXPORT_FORMATS[fmt] }}:</p>
-<textarea rows="10" cols="60" readonly aria-label="exported list">{{ text }}</textarea>
-<p>Download: {% for k, v in EXPORT_FORMATS.items() %}<a href="{{ url_for('buy_export', format=k, download=1, hide_alt=1 if hide_alt else none) }}">{{ v }}</a>{{ ' · ' if not loop.last }}{% endfor %}</p>
 {% else %}<p>Nothing to buy: every deck is complete, pullable or proxied.</p>{% endif %}
 {% endblock %}
