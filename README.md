@@ -2,7 +2,7 @@
 
 Self-hosted Magic: The Gathering collection & deck manager where **every physical card has a location** and decks are just locations. See [PLAN.md](PLAN.md) for the design and roadmap.
 
-Status: phases 1–3 shipped; 4–6 built (open PRs). Features:
+Status: phases 1–6 shipped. Features:
 - **Collection:** card database, locations with filters, stock + ledger with batch undo, collection browser, manual add / move / adjust / remove, quick add, paste a list.
 - **Decks:** built here (search or paste to add, per-slot qty / board / proxies / printing). Status per deck (short / excess), pull and return lists that move the physical cards, "mark as built" for imported decks, mana curve and format checks (legality, copies, size, commander colour identity).
 - **Import:** Moxfield (deck lists → decks; collection CSV → a location), with a queue for lines that need a decision.
