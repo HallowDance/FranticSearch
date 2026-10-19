@@ -17,9 +17,9 @@
 <button title="Set proxies to cover every card that's still short">Proxy all {{ st.short }} short</button></form>
 <span class="muted">or see what to <a href="{{ url_for('buy_list') }}">buy</a></span>
 {% endif %}
-{% if import_id and st.short %}
+{% if st.short %}
 <form method="post" action="{{ url_for('deck_build', deck_id=deck.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
-<button>Mark as built</button> <span class="muted">the cards physically live in this deck: pull every free copy it wants (switching slots to the printing you own where needed)</span></form>
+<button>Mark as built</button> <span class="muted">you own this deck: add its {{ st.short }} short card{{ '' if st.short == 1 else 's' }} to your collection as new copies, in the deck (not proxies or the maybeboard). To use copies you already have elsewhere, use the pull list first.</span></form>
 {% endif %}
 {% if stats.warnings %}<div class="flash error">{% for w in stats.warnings %}{{ w }}<br>{% endfor %}</div>{% endif %}
 {% endif %}
@@ -95,7 +95,7 @@
 <td>{{ c.set_code|upper }} #{{ c.collector_number }} {{ m.key_tags(c) }}</td></tr>{% endfor %}
 </table>
 </details>
-{% else %}<p class="muted">Nothing yet: cards come in through the pull list{% if import_id %} or "Mark as built"{% endif %}.</p>{% endif %}
+{% else %}<p class="muted">Nothing yet: cards come in through the pull list or "Mark as built".</p>{% endif %}
 <p class="muted">The cards physically in the deck. They change only through the pull and return lists; in your collection they show as <i>Decks / {{ deck.name }}</i>.</p>
 {% if history %}
 <details><summary>Recent moves in and out ({{ history|length }})</summary>

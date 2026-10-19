@@ -642,16 +642,20 @@ def _register_routes(app: Flask) -> None:
             if not text.strip():
                 raise LedgerError("paste a deck list or choose a file")
             name = f.get("name", "").strip() or os.path.splitext(filename)[0]
-            import_id = importer.import_deck(
-                conn, text, name, f.get("format", ""), f.get("after_blank", "commander"),
-                filename=filename, owner=_uid(),
-            )
+            with db.transaction(conn):
+                import_id = importer.import_deck(
+                    conn, text, name, f.get("format", ""), f.get("after_blank", "commander"),
+                    filename=filename, owner=_uid(),
+                )
+                imp = importer.get_import(conn, import_id)
+                built = deckplan.mark_built(conn, decks.get(conn, imp["deck_id"]))[1] if f.get("built") else None
         except LedgerError as e:
             flash(str(e), "error")
             return redirect(url_for("import_index"))
         imp = importer.get_import(conn, import_id)
         cmd = decks.commander_names(conn, imp["deck_id"])
         flash(f"Created deck {imp['deck_name']} with {imp['imported']} cards"
+              + (f" (marked as built: {built} added to your collection, in the deck)" if built is not None else "")
               + (f"; commander: {' & '.join(cmd)}." if cmd else "; no commander.")
               + (f" {imp['open']} line(s) need a decision below." if imp["open"] else ""), "ok")
         return redirect(url_for("import_view", import_id=import_id))
@@ -908,15 +912,14 @@ def _register_routes(app: Flask) -> None:
 
     @app.post("/decks/<int:deck_id>/build")
     def deck_build(deck_id: int):
+        """Mark as built: the deck's short cards join the collection as new copies, in the deck."""
         deck = _my_deck(deck_id)
         try:
-            batch, pulled, retargeted = deckplan.mark_built(g.db, deck, owner=_uid())
-            msg = f"Pulled {pulled} card{'' if pulled == 1 else 's'} into the deck"
-            msg += f"; {retargeted} slot cop{'y' if retargeted == 1 else 'ies'} switched to the printing you own." if retargeted else "."
-            st = deckplan.state(g.db, decks.get(g.db, deck_id))
-            if st["short"]:
-                msg += f" Still {st['short']} short: proxy or buy them."
-            _done(msg, batch)
+            batch, n = deckplan.mark_built(g.db, deck)
+            if n:
+                _done(f"Added {n} card{'' if n == 1 else 's'} to your collection, in {deck['name']}.", batch)
+            else:
+                flash("Nothing to add: the deck isn't short of anything (proxies count).", "error")
         except LedgerError as e:
             flash(str(e), "error")
         return redirect(url_for("deck_view", deck_id=deck_id))

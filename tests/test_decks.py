@@ -111,17 +111,23 @@ def test_edit_slot_merge_remove_and_checks(conn, setup):
     assert decks.slots(conn, d) == []
 
 
-def test_mark_as_built_retargets_to_owned_printing(conn, setup):
-    iid = importer.import_deck(conn, "1 Sol Ring (C21) 263\n2 Lightning Bolt", "Imported", owner=ALICE)
+def test_mark_as_built_adds_new_copies_in_the_deck(conn, setup):
+    iid = importer.import_deck(conn, "1 Sol Ring (C21) 263\n2 Lightning Bolt\nMaybeboard\n1 Delver of Secrets",
+                               "Imported", owner=ALICE)
     deck = decks.get(conn, importer.get_import(conn, iid)["deck_id"])
-    ledger.acquire(conn, setup["binder"], StockKey(SOL_CMM, "foil"), 1)    # not the C21 printing
-    ledger.acquire(conn, setup["binder"], StockKey(BOLT), 1)
-    batch, pulled, retargeted = deckplan.mark_built(conn, deck, owner=ALICE)
-    assert (pulled, retargeted) == (2, 1)
+    bolt = next(s for s in decks.slots(conn, deck["id"]) if s["printing_id"] == BOLT)
+    decks.edit_slot(conn, deck["id"], decks.slot_id(bolt), qty=2, proxy=1, board="main")
+    ledger.acquire(conn, setup["binder"], StockKey(SOL_C21), 1)          # free elsewhere: left alone
+    batch, n = deckplan.mark_built(conn, deck)
+    assert n == 2                                                          # Sol Ring + 1 bolt (1 proxy)
     st = deckplan.state(conn, deck)
-    assert st["short"] == 1 and st["excess_total"] == 0                   # one bolt to proxy or buy
-    assert {(s["printing_id"], s["finish"]) for s in st["slots"]} == {(SOL_CMM, "foil"), (BOLT, "nonfoil")}
-    assert ledger.check(conn) == []
+    assert (st["short"], st["excess_total"]) == (0, 0)
+    assert ledger.qty_at(conn, setup["binder"], StockKey(SOL_C21)) == 1
+    assert ledger.qty_at(conn, deck["location_id"], StockKey(DELVER)) == 0   # maybeboard
+    assert {r[0] for r in conn.execute("SELECT reason FROM movements WHERE batch_id = ?", (batch,))} == {"acquire"}
+    assert deckplan.mark_built(conn, deck) == (None, 0)
+    ledger.undo(conn, batch)                                               # undoable, unlike imports
+    assert deckplan.state(conn, deck)["short"] == 2 and ledger.check(conn) == []
 
 
 def test_analysis_warnings(conn, setup):
@@ -199,7 +205,13 @@ def test_retarget_and_build_routes(client, conn, setup):
                                                    "qty": "1"})
     assert sorted((r["finish"], r["qty_wanted"]) for r in decks.slots(conn, deck_id)) == [("foil", 1), ("nonfoil", 1)]
     r = client.post(f"/decks/{deck_id}/build", follow_redirects=True)
-    assert b"Pulled 1 card" in r.data and b"Still 1 short" in r.data
+    assert b"Added 2 cards to your collection, in Imp." in r.data and b"Undo that" in r.data
+    assert ledger.qty_at(conn, setup["binder"], StockKey(BOLT, "foil")) == 1   # not pulled
+    r = client.post("/import/deck", data={"text": "1 Sol Ring (C21) 263", "name": "Built", "built": "1"},
+                    follow_redirects=True)
+    assert b"marked as built: 1 added" in r.data
+    built = decks.get(conn, conn.execute("SELECT id FROM decks WHERE name = 'Built'").fetchone()[0])
+    assert ledger.qty_at(conn, built["location_id"], StockKey(SOL_C21)) == 1
 
 
 def test_card_page_add_to_deck(client, conn, setup):

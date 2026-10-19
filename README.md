@@ -4,7 +4,7 @@ Self-hosted Magic: The Gathering collection & deck manager where **every physica
 
 Status: phases 1–6 shipped. Features:
 - **Collection:** card database, locations with filters, stock + ledger with batch undo, collection browser, manual add / move / adjust / remove, quick add, paste a list.
-- **Decks:** built here (search or paste to add, per-slot qty / board / proxies / printing). Status per deck (short / excess), pull and return lists that move the physical cards, "mark as built" for imported decks, mana curve and format checks (legality, copies, size, commander colour identity).
+- **Decks:** built here (search or paste to add, per-slot qty / board / proxies / printing). Status per deck (short / excess), pull and return lists that move the physical cards, "mark as built" (I own this deck: add its cards to the collection, in the deck), mana curve and format checks (legality, copies, size, commander colour identity).
 - **Import:** Moxfield (deck lists → decks; collection CSV → a location), with a queue for lines that need a decision.
 - **Search:** card search with your owned / free counts.
 - **Users:** a few users with separate collections; locations and decks can be shared.
