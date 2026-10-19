@@ -8,7 +8,7 @@ FranticSearch: self-hosted MTG collection & deck manager where **every physical 
 - One feature branch per phase or feature, then a PR. The user asks for "open and merge" explicitly; don't merge on your own.
   - Use **merge commits** (`gh pr merge --merge`), never squash: branches are sometimes stacked.
   - For a stacked branch, merge the lower PR first, then open the next against `main`.
-- After code changes, run `pytest` and check the change against the real DB too, e.g. read-only GETs via `app.test_client()` with `session["uid"] = 1`. Then restart the dev server: it caches templates.
+- After code changes, run `pytest` and check the change against the real DB too, e.g. read-only GETs via `app.test_client()` with `session["uid"] = 1`. Then restart the server (`systemctl --user restart franticsearch`): it caches templates.
 - UI: functional, server-rendered HTML forms, no JS (not even inline); deliberately plain 90s/00s FOSS look (grey chrome, blue links, bordered tables). Keep it usable at phone width (no horizontal page scroll). Don't spend long on polish.
 
 ## Commands
@@ -71,15 +71,12 @@ Keep domain logic framework-free (unit-testable) and the Flask layer thin.
   - nginx sets `X-Forwarded-Prefix /franticsearch`; `location = /franticsearch/login` is rate-limited by zone `fs_login`, defined in `/etc/nginx/conf.d/franticsearch.conf`.
   - Config backups are in the server user's home: `theorycorner.com.nginx.bak-*`.
 - **Port 16602 is opened on all interfaces** (sshd has `GatewayPorts yes`), but **ufw blocks it** from outside (incoming default deny, IPv6 too). Only nginx reaches it. Keep it that way.
-- **The tunnel and dev server are not services.** They run as background jobs of a Claude Code session and die with it or when the laptop sleeps. To bring them up:
-
-  ```sh
-  FS_PROXY=1 python -m franticsearch serve      # from the repo, venv active
-  while true; do ssh -N -o BatchMode=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 \
-      -o ServerAliveCountMax=3 -R 127.0.0.1:16602:127.0.0.1:6602 theorycorner.com; sleep 10; done
-  ```
-
-  A 502 on the public URL means the tunnel or dev server is down. Making them permanent services (systemd --user / autossh, or gunicorn on the server) is an open to-do.
+- **The server and tunnel are systemd user services** (since 2026-10-19): `franticsearch.service` (`FS_PROXY=1 .venv/bin/python -m franticsearch serve` in the repo) and `franticsearch-tunnel.service` (autossh `-R 127.0.0.1:16602:127.0.0.1:6602 theorycorner.com`). Both `Restart=always` and enabled for `default.target`.
+  - Unit files are in `deploy/systemd/`; install with `cp deploy/systemd/*.service ~/.config/systemd/user/ && systemctl --user daemon-reload && systemctl --user enable --now franticsearch franticsearch-tunnel`.
+  - **Restart after code changes**: `systemctl --user restart franticsearch`. Logs: `journalctl --user -u franticsearch -f`.
+  - The service runs whatever is checked out in the repo, so the live site serves the current branch.
+  - Lingering is off: the services start at login and stop at logout (`loginctl enable-linger` would keep them running without a session). They're down while the laptop sleeps; autossh reconnects after wake.
+  - A 502 on the public URL means one of them is down: `systemctl --user status franticsearch franticsearch-tunnel`.
 - **Live DB**: `data/franticsearch.db` (gitignored, ~220 MB with the card cache). Backup before migration 005: `data/franticsearch.db.bak-pre-2b-20261018`.
 - **Git**: `origin` is SSH (`git@github.com:HallowDance/FranticSearch.git`); `gh` is logged in as HallowDance.
 
@@ -105,7 +102,6 @@ Keep domain logic framework-free (unit-testable) and the Flask layer thin.
   - Live stats + legality, commander colour identity.
   - Already in place: `deck_slots` (with `qty_proxy`), `decks.slots()` (in-deck/free counts), `importer.default_key()`, `ledger.move_many` (infers pull/return), batch undo, read-only deck page with type groups + mana curve, card search with quick add (to reuse for "add to deck").
 - Other open to-dos:
-  - Make the tunnel/server permanent.
   - Backups (the app is internet-facing now).
   - `FS_SECURE_COOKIE=1` once only HTTPS is used.
   - Trades between users (PLAN.md § Users & sharing, "later").
