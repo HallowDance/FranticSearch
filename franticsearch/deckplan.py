@@ -121,7 +121,7 @@ class Shortfall:
     slot: dict
     qty: int
     alternatives: list[dict] = field(default_factory=list)   # other free printings of the card
-    in_other_decks: str = ""
+    in_other_decks: list[str] = field(default_factory=list)
 
 
 def _free_pool(conn: sqlite3.Connection, owner: int) -> list[dict]:
@@ -186,12 +186,12 @@ def pull_plan(
                 if p["location_name"] not in a["where"]:
                     a["where"].append(p["location_name"])
         sf.alternatives = sorted(alts.values(), key=lambda a: -a["qty"])
-        sf.in_other_decks = ", ".join(r[0] for r in conn.execute(
+        sf.in_other_decks = [r[0] for r in conn.execute(
             """SELECT DISTINCT l.name FROM stock s JOIN locations l ON l.id = s.location_id
                 WHERE l.owner_id = ? AND l.type = 'deck' AND l.id <> ?
                   AND s.printing_id = ? AND s.finish = ? ORDER BY l.name""",
             (owner, _deck_location(conn, sf.deck_id),
-             sf.slot["printing_id"], sf.slot["finish"])))
+             sf.slot["printing_id"], sf.slot["finish"]))]
     return list(lines.values()), shortfalls
 
 

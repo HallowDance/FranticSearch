@@ -500,11 +500,14 @@ def _register_routes(app: Flask) -> None:
             abort(404)
         if loc["owner_id"] != _uid():  # someone else's shared location: read-only
             return _render_shared(loc)
+        deck = decks.by_location(conn, location_id)
+        if deck:  # a deck's location is shown as part of the deck (PLAN.md § Decks in the UI)
+            return redirect(url_for("deck_view", deck_id=deck["id"]) + "#contents")
         # lines a paste couldn't match: shown (prefilled) once, on this location's page
         paste = session.pop("paste") if (session.get("paste") or {}).get("loc") == location_id else None
         return render_template(
             "location.html", loc=loc, **_filtered_stock(location_id),
-            deck=decks.by_location(conn, location_id), tick_all=request.args.get("all") == "1",
+            tick_all=request.args.get("all") == "1",
             paste=paste,
             locs=_manual_locations(conn), has_history=locations.has_history(conn, location_id),
             history=queries.history(conn, _uid(), location_id=location_id)[:20],
@@ -732,6 +735,8 @@ def _register_routes(app: Flask) -> None:
             paste=session.pop("paste") if (session.get("paste") or {}).get("deck") == deck_id else None,
             import_id=imp["id"] if imp else None, status=deckplan.status(ctx["st"]),
             stats=deckplan.analysis(ctx["st"], deck),
+            contents=deckplan.deck_stock(conn, deck["location_id"]),
+            history=queries.history(conn, _uid(), location_id=deck["location_id"])[:20],
             deletable=not locations.has_history(conn, deck["location_id"]),
         )
 

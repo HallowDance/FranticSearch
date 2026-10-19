@@ -129,6 +129,16 @@ Details:
 - **Checks** on the deck page: banned / not legal cards for the deck's format, copy limits (4, or 1 in commander formats; basics and "any number" cards exempt; restricted = 1), deck size (100 for commander/duel/predh/paupercommander/brawl, 60 for standardbrawl/oathbreaker; else main ≥ 60 and side ≤ 15), commander present and colour identity. Plus non-land cards per colour and counts per board.
 - The Decks list shows each deck's status (complete / N short / N excess).
 
+### Decks in the UI (decided 2026-10-19)
+
+Each deck still owns one location of type `deck` (data model unchanged): it's what keeps "every card has a location" true for cards in decks, and the ledger, pull/return and undo work on it. But it was confusing to see every deck twice, once as a deck and once as a same-named location. The user chose a **display-only** fix over real nested locations (`parent_id`), which would need a migration and rules for parent counts and moves into a parent:
+
+- Wherever a location name is shown (collection, card page, history, collection/history filters, pull list's "in other decks"), a deck location reads **Decks / <deck name>** (`macros.place` / `macros.loc_link`; `queries.collection` builds the same string in SQL).
+- The Locations list and the Overview show one **Decks** row (total copies in all decks, linking to the Decks page) instead of one row per deck location. Deck locations don't count in the Overview's location total.
+- `/locations/<deck location>` **redirects to the deck page** (`#contents`) for the owner; other users with access still get the read-only shared deck view.
+- The deck page is the one page for a deck: besides the target list it shows **Physically in the deck** (the deck location's stock, open when something there isn't wanted) and the recent moves in and out.
+- If nesting is wanted later for user locations (Shelf / Box / Binder), that's a separate decision; this change doesn't block it.
+
 ## Users & sharing (phase 2b)
 
 Decided 2026-10-18: a few people on one instance, each with a **separate collection**; locations (incl. decks) can be shared.

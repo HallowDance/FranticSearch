@@ -32,7 +32,7 @@
 <td>{{ m.card_link(url_for('card', card_key=s.card_key, printing=s.printing_id), s.name, s.image) }}</td>
 <td><a href="{{ url_for('deck_slot', deck_id=sf.deck_id, slot=s.sid) }}">{{ s.set_code|upper }} #{{ s.collector_number }}</a> {{ m.key_tags(s) }}</td>
 {% if not deck %}<td><a href="{{ url_for('deck_view', deck_id=sf.deck_id) }}">{{ sf.deck_name }}</a></td>{% endif %}
-<td>{{ sf.in_other_decks }}</td>
+<td>{% for n in sf.in_other_decks %}{{ m.place(n, 'deck') }}{{ ', ' if not loop.last }}{% endfor %}</td>
 <td>{% for a in sf.alternatives[:5] %}
 <form class="inline" method="post" action="{{ url_for('deck_retarget', deck_id=sf.deck_id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
 <input type="hidden" name="slot" value="{{ s.sid }}"><input type="hidden" name="printing_id" value="{{ a.printing_id }}"><input type="hidden" name="finish" value="{{ a.finish }}">

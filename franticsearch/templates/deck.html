@@ -10,7 +10,7 @@
 {% if st.short %}<a href="{{ url_for('deck_pull', deck_id=deck.id) }}">Pull list</a>{% endif %}
 {% if st.excess_total %}<a href="{{ url_for('deck_return', deck_id=deck.id) }}">Return list</a>{% endif %}
 &middot; <a href="{{ url_for('add', deck=deck.id) }}">Add cards</a> &middot; <a href="#paste">paste a list</a>
-&middot; <a href="{{ url_for('location_view', location_id=deck.location_id) }}">deck location</a>
+&middot; <a href="#contents">physically in the deck</a>
 {% if import_id %}&middot; imported in <a href="{{ url_for('import_view', import_id=import_id) }}">import #{{ import_id }}</a>{% endif %}</p>
 {% if import_id and st.short %}
 <form method="post" action="{{ url_for('deck_build', deck_id=deck.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
@@ -81,6 +81,23 @@
 {% endif %}
 {% endif %}
 {% if not readonly %}
+<h2 id="contents">Physically in the deck ({{ contents|sum(attribute='qty') }})</h2>
+{% if contents %}
+<details {{ 'open' if st.excess_total }}><summary>{{ contents|length }} line{{ '' if contents|length == 1 else 's' }}{% if st.excess_total %}, {{ st.excess_total }} not wanted by the list (see the <a href="{{ url_for('deck_return', deck_id=deck.id) }}">return list</a>){% endif %}</summary>
+<table class="grid">
+<tr><th>Qty</th><th>Card</th><th>Printing</th></tr>
+{% for c in contents %}<tr><td class="num">{{ c.qty }}</td><td>{{ m.card_link(url_for('card', card_key=c.card_key, printing=c.printing_id), c.name, c.image) }}</td>
+<td>{{ c.set_code|upper }} #{{ c.collector_number }} {{ m.key_tags(c) }}</td></tr>{% endfor %}
+</table>
+</details>
+{% else %}<p class="muted">Nothing yet: cards come in through the pull list{% if import_id %} or "Mark as built"{% endif %}.</p>{% endif %}
+<p class="muted">The cards physically in the deck. They change only through the pull and return lists; in your collection they show as <i>Decks / {{ deck.name }}</i>.</p>
+{% if history %}
+<details><summary>Recent moves in and out ({{ history|length }})</summary>
+<table class="grid">{{ m.movement_head() }}{% for h in history %}{{ m.movement_row(h) }}{% endfor %}</table>
+<p class="muted">Undo from the <a href="{{ url_for('history', location=deck.location_id) }}">History</a> page.</p>
+</details>
+{% endif %}
 <h2 id="paste">Add cards from a list</h2>
 <form method="post" action="{{ url_for('deck_paste', deck_id=deck.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
 {% if paste %}<div class="flash error">{% for p in paste.problems %}{{ p }}<br>{% endfor %}</div>{% endif %}

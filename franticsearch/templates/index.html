@@ -17,9 +17,11 @@
 {% if locs %}
 <table class="grid">
 <tr><th>Name</th><th>Type</th><th>Copies</th></tr>
-{% for l in locs %}
+{% set decklocs = locs|selectattr('type', 'equalto', 'deck')|list %}
+{% for l in locs if l.type != 'deck' %}
 <tr><td><a href="{{ url_for('location_view', location_id=l.id) }}">{{ l.name }}</a></td><td>{{ l.type }}</td><td class="num">{{ l.cards }}</td></tr>
 {% endfor %}
+{% if decklocs %}<tr><td><a href="{{ url_for('decks_list') }}">Decks</a></td><td>decks</td><td class="num">{{ decklocs|sum(attribute='cards') }}</td></tr>{% endif %}
 </table>
 {% else %}<p class="muted">No locations yet.</p>{% endif %}
 {% endblock %}

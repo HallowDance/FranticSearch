@@ -98,7 +98,7 @@ def collection(
                    MIN(p.mana_cost) AS mana_cost, MIN(p.image_normal) AS image, MIN(p.cmc) AS cmc,
                    SUM(s.qty) AS qty,
                    COUNT(DISTINCT p.scryfall_id) AS printings,
-                   GROUP_CONCAT(DISTINCT l.name) AS locations
+                   GROUP_CONCAT(DISTINCT CASE WHEN l.type = 'deck' THEN 'Decks / ' || l.name ELSE l.name END) AS locations
             {base}
             GROUP BY card_key
             ORDER BY {order_by(COLLECTION_SORTS, f.sort)}
@@ -118,7 +118,8 @@ def totals(conn: sqlite3.Connection, owner: int | None) -> sqlite3.Row:
                      JOIN locations l ON l.id = s.location_id
                     WHERE :o IS NULL OR l.owner_id = :o) AS cards,
                   (SELECT COUNT(*) FROM printings) AS printings,
-                  (SELECT COUNT(*) FROM locations WHERE :o IS NULL OR owner_id = :o) AS locations,
+                  (SELECT COUNT(*) FROM locations WHERE (:o IS NULL OR owner_id = :o) AND type <> 'deck'
+                      AND archived = 0) AS locations,
                   (SELECT COUNT(*) FROM movements m WHERE :o IS NULL OR EXISTS (
                       SELECT 1 FROM locations l WHERE l.owner_id = :o
                          AND l.id IN (m.from_location_id, m.to_location_id))) AS movements""",
@@ -440,7 +441,7 @@ def history(
     return conn.execute(
         f"""SELECT m.*, p.name, p.set_code, p.collector_number, p.image_normal AS image,
                    COALESCE(p.oracle_id, p.scryfall_id) AS card_key,
-                   fl.name AS from_name, tl.name AS to_name,
+                   fl.name AS from_name, tl.name AS to_name, fl.type AS from_type, tl.type AS to_type,
                    EXISTS(SELECT 1 FROM movements u WHERE u.undo_of = m.batch_id) AS undone
               FROM movements m
               JOIN printings p ON p.scryfall_id = m.printing_id

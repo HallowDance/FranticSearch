@@ -68,7 +68,7 @@ def test_pull_plan_shares_free_copies_between_decks(conn, setup):
     assert len(lines) == 1 and len(shortfalls) == 1                      # one copy, one deck
     deckplan.confirm_pulls(conn, ALICE)
     _, shortfalls = deckplan.pull_plan(conn, ALICE)
-    assert shortfalls[0].in_other_decks in ("Burn", "Other")
+    assert shortfalls[0].in_other_decks in (["Burn"], ["Other"])
 
 
 def test_return_list_defaults_to_pull_source(conn, setup):
@@ -209,3 +209,16 @@ def test_card_page_add_to_deck(client, conn, setup):
                                          "qty": "1", "board": "side"})
     assert [(r["printing_id"], r["finish"], r["board"]) for r in decks.slots(conn, setup["deck"])] \
         == [(SOL_CMM, "foil", "side")]
+
+
+def test_deck_locations_show_as_decks_slash_name(client, conn, setup):
+    decks.add_slot(conn, setup["deck"], StockKey(SOL_C21), "main", 1)
+    ledger.acquire(conn, setup["binder"], StockKey(SOL_C21), 1)
+    deckplan.confirm_pulls(conn, ALICE)
+    for url in ["/collection", f"/card/{SOL_ORACLE}", "/history"]:
+        assert "Decks / Burn" in client.get(url).data.decode(), url
+    page = client.get("/locations").data.decode()
+    assert ">Burn</a>" not in page and ">Decks</a>" in page
+    assert "Decks</a></td><td>decks</td><td class=\"num\">1</td>" in page
+    page = client.get(f"/decks/{setup['deck']}").data.decode()
+    assert "Physically in the deck (1)" in page and "Recent moves in and out" in page

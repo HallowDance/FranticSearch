@@ -4,7 +4,6 @@
 <h1>{{ loc.name }} <span class="muted">({{ loc.type }}{{ ', archived' if loc.archived }})</span></h1>
 {% if loc.archived %}<p class="flash error">This location is archived: hidden from lists and forms, kept in history.</p>{% endif %}
 {% if loc.notes %}<p>{{ loc.notes }}</p>{% endif %}
-{% if deck %}<p>This is the location of deck <a href="{{ url_for('deck_view', deck_id=deck.id) }}">{{ deck.name }}</a>.</p>{% endif %}
 <h2>Contents</h2>
 {% set sort = request.args.get('sort', 'name') %}
 {% set manual = loc.type != 'deck' %}

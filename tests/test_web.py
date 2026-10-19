@@ -79,7 +79,8 @@ def test_import_pages_and_deck_flow(client, conn):
     page = client.get(f"/decks/{deck_id}").data
     assert b"Commander (1)" in page and b"Lightning Bolt" in page and b"Delete deck" in page
     loc_id = conn.execute("SELECT location_id FROM decks").fetchone()[0]
-    assert b"This is the location of deck" in client.get(f"/locations/{loc_id}").data
+    r = client.get(f"/locations/{loc_id}")                    # deck locations live on the deck page
+    assert r.status_code == 302 and r.headers["Location"].endswith(f"/decks/{deck_id}#contents")
 
     uid = conn.execute("SELECT id FROM import_unresolved").fetchone()[0]
     assert b"Delver" in client.get(f"/import/line/{uid}?q=delver").data

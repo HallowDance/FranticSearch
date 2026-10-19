@@ -15,7 +15,7 @@ FranticSearch: self-hosted MTG collection & deck manager where **every physical 
 
 ```sh
 python3 -m venv .venv && . .venv/bin/activate && pip install -e ".[dev,serve]"
-pytest                                   # full suite, ~10 s, no network (90 tests)
+pytest                                   # full suite, ~10 s, no network (91 tests)
 python -m franticsearch serve            # dev server http://127.0.0.1:6602 (auto-syncs Scryfall)
 python -m franticsearch serve --no-auto-sync
 python -m franticsearch migrate          # apply pending migrations (serve also does this)
@@ -61,6 +61,7 @@ Keep domain logic framework-free (unit-testable) and the Flask layer thin.
 - Ledger reasons: `import`, `acquire` (no source) · `sell` (no destination) · `adjust` (one side) · `move` (non-deck ↔ non-deck) · `pull` (into a deck location) · `return` (out of one).
   - `ledger.move()` / `transfer_many()` infer move/pull/return. Undo writes compensating rows tagged `undo_of`; imports can't be undone.
 - Deck locations change only via the deck's pull/return lists and "mark as built"; manual forms exclude them.
+- **Deck locations are hidden plumbing in the UI** (PLAN.md § Decks in the UI): show location names with `m.place(name, type)` / `m.loc_link(id, name, type)` so decks read "Decks / <name>"; lists show one "Decks" row; `/locations/<deck loc>` redirects to the deck page. Queries that feed location names should also return the location type.
 - **Deck slots match copies by printing + finish**; condition/language don't matter for decks (slots are stored NM/en).
 - Strict ownership: a copy is in exactly one location; no cross-deck swap suggestions.
 - Locations with ledger history can't be deleted; once empty they can be **archived**.
@@ -97,7 +98,7 @@ Keep domain logic framework-free (unit-testable) and the Flask layer thin.
   - #7 location filters
   - #8 phase 3 card search
 - Open: #10 systemd services for server + tunnel; phase 4 decks (branch `phase-4`).
-- 90 tests pass.
+- 91 tests pass.
 - Verified on real data: Scryfall sync (118,893 printings); Moxfield deck text, both exports (100/100); Moxfield collection CSV (337 rows, 0 unresolved, in "Rares Binder").
 - **Unverified**: `docker compose up --build` itself. There's no container runtime on the dev machine; the Dockerfile's steps were replayed outside a container.
 - **Phase 4, decks** (branch `phase-4`): editor (new deck, settings, slot page with printing switch, add from search / card page / pasted list), derived status, pull list (per deck and all decks, with "use this printing"), return list, mark as built, stats + format checks. Verified on a copy of the live DB (mark as built: 4 retargeted, 4 pulled, check OK).
