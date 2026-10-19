@@ -36,11 +36,25 @@ Other commands:
 | `python -m franticsearch sync [--force]` | update the Scryfall cache |
 | `python -m franticsearch sync --file default-cards.jsonl.gz` | import a manually downloaded Scryfall bulk file (`.jsonl`/`.json`, gzipped or not) |
 | `python -m franticsearch check` | verify stock equals the ledger (exit 1 on mismatch) |
+| `python -m franticsearch backup [--dir DIR] [--keep 14]` | gzipped online backup (safe while the server runs), default `data/backups/` |
+| `python -m franticsearch restore FILE` | replace the database with a backup (stop the server first; the current DB is kept as `*.pre-restore-*`) |
 | `python -m franticsearch user add NAME --admin` | create an account (the first admin adopts any existing data); `user passwd NAME`, `user list` |
 
 Settings (environment): `FS_DB` (database path, default `data/franticsearch.db`), `FS_AUTO_SYNC` (`1`/`0`, default `1`), `FS_SECRET_KEY` (optional; otherwise generated and stored in the DB), `FS_PROXY` (`1` when behind a reverse proxy: trusts its `X-Forwarded-For/-Proto/-Host/-Prefix` headers, so the app can live under a path such as `/franticsearch/`; default `0`), `FS_SECURE_COOKIE` (`1` = send the session cookie over HTTPS only).
 
 After the first start, create an account: `python -m franticsearch user add NAME --admin`.
+
+## Run as a service (systemd user units)
+
+`deploy/systemd/` has user units for the app (`franticsearch.service`, run from the repo's `.venv` with `FS_PROXY=1`), a reverse SSH tunnel to a reverse proxy (`franticsearch-tunnel.service`, autossh; adjust the host) and nightly backups (`franticsearch-backup.timer`). The unit paths assume the repo lives at `~/hobbies/dev/python/FranticSearch`.
+
+```sh
+cp deploy/systemd/* ~/.config/systemd/user/ && systemctl --user daemon-reload
+systemctl --user enable --now franticsearch franticsearch-tunnel franticsearch-backup.timer
+systemctl --user restart franticsearch        # after updating the code
+```
+
+With Docker, run backups with `docker compose exec franticsearch python -m franticsearch backup` (e.g. from cron).
 
 ## Tests
 

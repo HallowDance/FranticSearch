@@ -10,11 +10,11 @@ A self-hosted MTG collection & deck manager built around one idea: **every physi
 | Access | Phases 1–2: no auth (LAN, then nginx basic auth). From phase 2b: **in-app login**, enforced by a single auth hook (`before_request`) so routes don't each handle it. See § Users & sharing |
 | Deckbuilding | **In FranticSearch.** Decks are built and edited here; Moxfield deck import is for one-time migration only |
 | Copy model | Quantity per **printing key** per location. Key = Scryfall printing + finish + condition + language. Condition/language are optional and default to NM/EN — hidden in the UI unless set |
-| Locations | Flat, named, typed: `binder` · `box` · `deck` · `lent` · `other`. Each deck owns exactly one location |
-| Deck slots | Always an **exact printing** + finish |
+| Locations | Flat, named, typed: `binder` · `box` · `deck` · `lent` · `other`. Each deck owns exactly one location, shown in the UI as "Decks / <deck>" (§ Decks in the UI) |
+| Deck slots | Always an **exact printing** + finish; condition and language don't matter for decks (§ Phase 4 as built) |
 | Contention | **Strict**: a copy is in exactly one place. If the needed copies are all in other decks, the slot is short |
 | Deck ↔ collection | **Pull/return workflow**: a deck is a target list; stock only moves when you confirm a physical move |
-| Extras in scope | Moxfield/CSV import · proxies & shortfall/buy list |
+| Extras in scope | Moxfield/CSV import · proxies & shortfall/buy list · exports · backups |
 | Out of scope (for now) | Prices, card scanning, open sign-up / large-scale hosting, trades between users (later, see § Users & sharing), Moxfield re-sync |
 
 ## Data model
@@ -22,24 +22,29 @@ A self-hosted MTG collection & deck manager built around one idea: **every physi
 | Table | Columns / purpose |
 |---|---|
 | `printings` | Scryfall bulk cache: `scryfall_id` (PK), `oracle_id`, `name`, `set`, `set_name`, `collector_number`, `released_at`, `finishes`, `lang`, `mana_cost`, `cmc`, `colors`, `color_identity`, `type_line`, `oracle_text`, `legalities`, image URIs (incl. card faces). FTS index on `name`, `type_line`, `oracle_text` |
-| `locations` | `id`, `name`, `type`, `notes`, `archived` |
+| `users` | `id`, `username`, `password_hash`, `is_admin` (phase 2b) |
+| `locations` | `id`, `owner_id`, `name` (unique per owner), `type`, `notes`, `archived`, `visibility`, `share_token` |
 | `stock` | (`location_id`, `printing_id`, `finish`, `condition`, `lang`) → `qty` (> 0). **Single source of truth for physical whereabouts** |
-| `movements` | Append-only ledger: `id`, `ts`, `from_location`, `to_location`, printing key, `qty`, `reason` (`import` · `acquire` · `pull` · `return` · `move` · `adjust` · `sell`), `note`, `batch_id` |
+| `movements` | Append-only ledger: `id`, `ts`, `from_location`, `to_location`, printing key, `qty`, `reason` (`import` · `acquire` · `pull` · `return` · `move` · `adjust` · `sell`), `note`, `batch_id`, `undo_of` (the batch an undo reverses) |
 | `decks` | `id`, `name`, `format`, `location_id`, `notes` |
-| `deck_slots` | `deck_id`, printing key, `board` (`main` · `side` · `commander` · `maybe`), `qty_wanted`, `qty_proxy` |
+| `deck_slots` | `deck_id`, printing key (always NM/en), `board` (`main` · `side` · `commander` · `maybe`), `qty_wanted`, `qty_proxy` |
+| `imports`, `import_unresolved` | One row per imported file / deck list (owner, sha256 for duplicate refusal), and the lines that need a decision (phase 2) |
+| `meta` | Key/value: Scryfall sync state, generated secret key |
+
+Schema history: `migrations/001`–`005` (005 = users & sharing). Nothing after phase 2b needed a migration.
 
 Rules:
 - `stock` and `movements` are always written in the same transaction; `stock` must equal the ledger's projection (a check command verifies this).
 - `acquire`/`import` have a null `from`; `sell`/removal have a null `to`.
 - A manual move between two non-deck locations is `move`; any move into a deck location is a `pull`, out of one a `return`.
-- Deck locations are only changed through their deck's pull/return lists, never by the manual move forms.
+- Deck locations are only changed through their deck's pull/return lists and "mark as built", never by the manual move forms.
 - A location can be deleted only if it never held anything (the ledger refers to it). Otherwise, once empty, it can be **archived**: hidden from lists and forms, kept in history, restorable. Nothing can be added to an archived location.
 - `batch_id` groups one user action (e.g. "confirm pull list") so it can be undone as a unit.
 
 ### Derived deck state (computed, never stored)
 
 Per slot:
-- `in_deck` = `stock` at the deck's location for the slot's printing key
+- `in_deck` = `stock` at the deck's location for the slot's printing + finish (any condition/language), shared out over the slots of that printing in board order commander → main → side
 - `short` = `max(0, qty_wanted − in_deck − qty_proxy)`
 
 Per deck:
@@ -51,17 +56,17 @@ Per deck:
 ## Core workflows
 
 ### 1. Pull list
-For one deck or all decks: for each short slot, find the same printing key in **non-deck** locations and propose moves — "Pull 2× Sol Ring (C21 #263, nonfoil) from Binder A". Tick lines individually or confirm all → `pull` movements in one batch.
+For one deck or all decks: for each short slot, find the same printing + finish in **non-deck** locations and propose moves — "Pull 2× Sol Ring (C21 #263, nonfoil) from Binder A". Tick lines individually or confirm all → `pull` movements in one batch.
 
 Helper (informational, strictness unchanged): if the exact printing isn't free but a *different* printing of the same card is, show it with a one-click "retarget slot to this printing".
 
 ### 2. Return list
-Excess copies in a deck location become return lines. Default destination = the location the copy was last pulled from (from the ledger), else a configurable default ("Unsorted"). Confirm → `return` movements.
+Excess copies in a deck location become return lines. Default destination = the non-deck location the printing last came into the deck from (from the ledger), else "Unsorted" (a box, created on first use); changeable per line. Confirm → `return` movements.
 
 Changing a slot's printing = old printing becomes excess (return) + new printing becomes short (pull).
 
 ### 3. Proxies & shortfalls
-`qty_proxy` covers part of a shortfall. The **buy list** aggregates remaining `short` across all decks, grouped by printing, exportable as plain text / Moxfield / TCGplayer mass-entry / CSV.
+`qty_proxy` covers part of a shortfall. The **buy list** aggregates remaining `short` across all decks, grouped by printing, exportable as plain text / Moxfield / TCGplayer mass-entry / CSV. As built: § Phases 5 & 6 as built.
 
 ### 4. Collection browsing
 Card → printings → per-location quantities. Filters: location, location type, "not in any deck", set, name search. Manual actions: add (acquire), move, adjust, remove (sell/trade).
@@ -93,7 +98,7 @@ Card search as built (phase 3, 2026-10-18):
 - `queries.CardSearch` / `queries.search` build one SQL query. Owned/free counts come from a per-user join on `stock`. Real data: 5–410 ms per page.
 
 ### 6. History & undo
-Ledger view per card, per location, per deck. Undo the last batch by writing compensating movements (never deleting rows).
+Ledger view per card, per location, per deck (History page filters, linked from each page). Undo any batch by writing compensating movements (never deleting rows).
 
 Decided (2026-10-18, UI improvements, pulled forward from phase 6):
 - Any batch can be undone, not only the last: from the "Undo that" button after an action, or per batch on the History page. Compensating rows carry `movements.undo_of`; a batch can be undone once, an undo can't itself be undone, and it fails (changing nothing) if the copies have moved since. One-sided rows reverse as `adjust`; moves reverse as move/pull/return by location type.
@@ -160,9 +165,9 @@ Details:
 Decided 2026-10-18: a few people on one instance, each with a **separate collection**; locations (incl. decks) can be shared.
 
 - **Accounts**: created by the admin (`python -m franticsearch user add NAME [--admin]`, plus an admin page). No sign-up. Users change their own password. Passwords hashed with werkzeug (`scrypt`/`pbkdf2`).
-- **Login**: in-app login page and session cookie. Replaces the nginx basic-auth prompt once shipped. Login rate-limited (nginx `limit_req`). All POST forms carry a per-session CSRF token. Session cookie `HttpOnly`, `SameSite=Lax`, `Secure` behind HTTPS.
+- **Login**: in-app login page and session cookie (replaced the earlier nginx basic-auth prompt). Login rate-limited (nginx `limit_req`). All POST forms carry a per-session CSRF token. Session cookie `HttpOnly`, `SameSite=Lax`, `Secure` behind HTTPS.
 - **Ownership**: `users` table; `locations.owner_id` (and `imports.owner_id`). Stock, movements and decks belong to a user through their locations.
-  - Location names are unique **per user**. This needs a table rebuild, since the unique constraint is global today.
+  - Location names are unique **per user** (migration 005 rebuilt the table for this).
   - The ledger refuses moves between two users' locations until trades exist.
   - Every route that takes a location / deck / import / queue line / batch id checks ownership, with tests per route. URL-guessing someone else's ids must 404.
 - **Existing data**: the first admin account created adopts all existing locations and imports.
@@ -181,7 +186,7 @@ Decided 2026-10-18: a few people on one instance, each with a **separate collect
 
 1. **Collection CSV** (Moxfield export: Count, Name, Edition, Collector Number, Foil, Condition, Language…) → into a chosen location, default "Unsorted". Resolution by (set, collector number) → fallback (name, set) → unresolved queue for manual fix.
 2. **Deck text export** (`1 Sol Ring (C21) 263 *F*`, sections for commander/sideboard/maybeboard) → creates deck + slots.
-3. **"Mark as built"** per imported deck: confirms the cards physically live in that deck → moves matching stock from non-deck locations into the deck location; leftovers show as short (proxy or buy). Surfaces cases where Moxfield double-counted a card across decks.
+3. **"Mark as built"** per imported deck: confirms the cards physically live in that deck → moves matching stock from non-deck locations into the deck location, switching slots to an owned free printing where the listed one isn't free; leftovers show as short (proxy or buy). Surfaces cases where Moxfield double-counted a card across decks. (Shipped in phase 4.)
 4. Importing is idempotent per file (hash recorded) to prevent accidental double imports.
 
 Decided for phase 2 (2026-10-18):
@@ -200,9 +205,10 @@ Decided for phase 2 (2026-10-18):
 - **SQLite** via the standard library `sqlite3` (WAL mode); numbered plain-SQL migrations tracked in `PRAGMA user_version`
 - **Scryfall bulk data** (`default_cards`, served by Scryfall as gzipped JSON Lines, ~80 MB) streamed into `printings` on first run and re-checked daily (background thread); images hotlinked from Scryfall CDN. Follows Scryfall's API guidelines (bulk file, User-Agent + Accept headers)
 - **pytest** for domain logic (ledger invariants, pull/return planning, import parsing) and Flask test-client page tests
-- **Docker** single container running gunicorn (1 worker, threads), DB in a mounted volume; backup = copy the DB file
+- **Docker** single container running gunicorn (1 worker, threads), DB in a mounted volume (not yet run in a real container). The live instance runs the Flask dev server as a systemd user service instead (CLAUDE.md § Deployment)
+- **Backups**: `python -m franticsearch backup` (SQLite online backup, gzipped), nightly via a systemd user timer; `restore` from the CLI
 
-Domain logic (`ledger.py`, later pull/return planning and import parsing) is framework-free and unit-tested; the Flask layer only parses forms and renders.
+Domain logic (`ledger.py`, `deckplan.py` for deck state and pull/return planning, `importer.py`, `exports.py`, `backup.py`) is framework-free and unit-tested; the Flask layer only parses forms and renders.
 
 ## Phases
 
@@ -215,7 +221,7 @@ Domain logic (`ledger.py`, later pull/return planning and import parsing) is fra
 | 4 | Decks | Deck editor (slots, boards, proxies, printing switch), live stats + legality, derived deck state, pull list, return list, "mark as built" | **Shipped** (PR #11), see § Phase 4 as built |
 | 5 | Shortfalls | Proxies, cross-deck buy list, exports | **Shipped** (PR #12), see § Phases 5 & 6 as built |
 | 6 | Polish | Batch undo, ledger views, mobile layout pass, backup/restore | **Shipped** (PR #12; batch undo in PR #4) |
-| later | — | Scryfall query syntax, public hosting + auth, prices, scanning, trades between users | Hosting + auth done: reverse proxy (PR #3), in-app login (PR #6). Server + tunnel run as systemd user services (PR #10); nightly local backups (PR #12). Still to do: off-machine backup copies |
+| later | — | Scryfall query syntax, public hosting + auth, prices, scanning, trades between users | Hosting + auth done: reverse proxy (PR #3), in-app login (PR #6), systemd services (PR #10), nightly local backups (PR #12). The rest: § What's next |
 
 ### Shipped so far (as of 2026-10-19)
 
@@ -246,7 +252,26 @@ Domain logic (`ledger.py`, later pull/return planning and import parsing) is fra
 - **PR #11, Phase 4 decks** (§ Phase 4 as built, § Decks in the UI): deck editor, derived state, pull / return lists, mark as built, deck checks; deck locations shown as "Decks / <name>".
 - **PR #12, Phases 5 & 6** (§ Phases 5 & 6 as built): buy list, exports, proxies, deck export, backups + restore, history by card, phone layout pass.
 
+## What's next
+
+All six phases are shipped (2026-10-19). Nothing is in progress; the user picks the next item. Candidates:
+
+Features (from "later"):
+- **Scryfall query syntax** subset (`t:`, `o:`, `c<=`, `mv=` …) in the Search box, on top of the structured filters (§ 5).
+- **Trades between users**: a confirmed two-sided move with a `trade` reason pair in both ledgers (§ Users & sharing). Needs a migration (reason CHECK constraint).
+- **Prices** (Scryfall bulk data has them) for the collection and the buy list.
+- Card scanning stays out of scope.
+
+Operations:
+- **Off-machine copies of the backups** (only local ones exist; the laptop is a single point of failure). Not chosen in phase 6; still open.
+- `FS_SECURE_COOKIE=1` once the site is only used over HTTPS.
+- `loginctl enable-linger` if the site should run while the owner is logged out (it still stops while the laptop sleeps).
+- Verify `docker compose up --build` in a real container, or move the app onto the server (gunicorn), if the laptop's uptime isn't enough.
+
+Smaller ideas noticed while building (not decided):
+- Nested user locations (Shelf / Box / Binder); § Decks in the UI leaves room for it.
+- Undo for imports (§ 6).
+
 ## Open questions
 
-- None blocking.
-- Deployment target: today the app runs on the dev machine behind a reverse SSH tunnel. Server and tunnel are systemd user services on the dev machine (2026-10-19). Revisit if the laptop's uptime isn't enough: move the app onto the server with gunicorn as the Dockerfile does. Also scheduled backups of the SQLite file.
+- None blocking. See § What's next for what to pick up.

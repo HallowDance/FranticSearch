@@ -39,17 +39,17 @@ Env: `FS_DB` (default `data/franticsearch.db`), `FS_AUTO_SYNC` (default `1`), `F
 | `db.py` | Connections (WAL, FKs on, autocommit), **re-entrant** `transaction()` (joins an open one, so domain functions compose atomically), migration runner, `meta` helpers |
 | `ledger.py` | **The only code that changes `stock`.** acquire(_many) / move(_many) / transfer_many (several from→to pairs, one batch) / adjust / sell / undo write stock + `movements` in one transaction. Refuses moves between two users' locations. `check()` verifies the invariant. Also `LANGUAGES`, `CONDITIONS`, `StockKey`, `validate_key`. |
 | `users.py` | Accounts: create (first admin adopts ownerless locations/imports), authenticate (constant-ish time), set password |
-| `locations.py` | Location CRUD (owner, names unique per owner), archive, visibility (`private` < `users` < `link`) + share tokens, `can_view`, `shared()` for the People page |
+| `locations.py` | Location CRUD (owner, names unique per owner), archive, visibility (`private` < `users` < `link`) + share tokens, `can_view`, `shared()` for the People page, `unsorted()` (the owner's "Unsorted" box, created on use) |
 | `decks.py` | Deck + its same-named deck location (`update` renames both), `add_slot`, `edit_slot` (qty / proxy / board / printing / finish; merges, qty 0 removes), `retarget`, slot ids `printing\|finish\|cond\|lang\|board`, `slots()` (in-deck / free / where / any-printing, scoped to the deck owner), `grouped()` by card type, `mana_curve()`, delete (only if the deck location has no history). `BOARDS`, `FORMATS`, `COMMANDER_FORMATS`. |
 | `deckplan.py` | Phases 4–5, computed never stored: `buy_list()`, `proxy_short()`, `state()` (per-slot in_deck / short, excess lines), `pull_plan()` / `confirm_pulls()` (one deck or all; free copies planned once), `return_plan()` / `confirm_returns()` (default = last pull source, else Unsorted), `mark_built()` (retarget to an owned free printing, then pull), `analysis()` (colours, legality, copy limits, size, commander identity). Confirm functions recompute the plan, so stale forms can't over-move. |
-| `importer.py` | Moxfield deck text / collection CSV: parse → `resolve()` (set+cn → name+set → `default_key()` = owner's free copy, else newest released regular paper printing) → import (per-owner sha256 dedupe). Unresolved queue fix/dismiss. `paste_into()` for quick list entry. |
+| `importer.py` | Moxfield deck text / collection CSV: parse → `resolve()` (set+cn → name+set → `default_key()` = owner's free copy, else newest released regular paper printing) → import (per-owner sha256 dedupe). Unresolved queue fix/dismiss. `paste_into()` (location) and `paste_into_deck()` (slots) for quick list entry. |
 | `cardtypes.py` | Type line → (supertypes, card types, subtypes) over all faces |
 | `queries.py` | Read-only queries. Collection / location / history / totals per owner; `shared_stock`; `StockFilter` (location filters, in Python); `CardSearch` + `search()` (phase 3, SQL); whitelisted `order_by()` for `?sort=` |
 | `exports.py` | Card lists as text: `text`, `moxfield` (deck exports with board headers the importer reads back), `tcgplayer`, `csv`. Used by the buy list, deck export, proxy list. |
 | `backup.py` | `backup()` (SQLite backup API → gzip, prune to N), `list_backups()`, `restore()` (port check, integrity check, saves current DB, migrate + ledger check). Nightly via `deploy/systemd/franticsearch-backup.timer`. |
 | `scryfall.py` | Bulk sync: gzipped JSONL from `jsonl_download_uri` (legacy JSON arrays via `ijson`). Upserts, never deletes printings. Stores `face_name`, `set_type`, `digital`, `promo` for default-printing choice. |
-| `app.py` + `templates/` + `static/style.css` | Flask, POST-redirect-GET, flash messages. `macros.html`: card links with hover image, tiles, sort headers, view switch, stock actions, filters, sharing box. |
-| `tests/` | pytest. `conftest.py`: `conn` fixture creates admin user `alice` (`ALICE` = 1) and imports `fixtures_default_cards.json` (SOL_C21 / SOL_CMM / DELVER / BOLT). `client` is logged in as alice with CSRF off; use `login_as(client, uid)` for others. `test_users.py` covers isolation; `test_filters.py`, `test_importer.py`, `test_web.py`. |
+| `app.py` + `templates/` + `static/style.css` | Flask, POST-redirect-GET, flash messages. `macros.html`: card links with hover image, tiles, sort headers, view switch, stock actions, filters, sharing box, `place` / `loc_link` (location names, "Decks / <name>"). Routes are grouped by area in `_register_routes`; deck routes live under `/decks/<id>/…` plus `/pull`, `/buy`, `/decks/add-card` (deck id in the form). |
+| `tests/` | pytest. `conftest.py`: `conn` fixture creates admin user `alice` (`ALICE` = 1) and imports `fixtures_default_cards.json` (SOL_C21 / SOL_CMM / DELVER / BOLT). `client` is logged in as alice with CSRF off; use `login_as(client, uid)` for others. `test_users.py` covers isolation; `test_decks.py` (phase 4), `test_shortfalls_backup.py` (phases 5–6), `test_filters.py`, `test_importer.py`, `test_web.py`, `test_ledger.py`. |
 
 Keep domain logic framework-free (unit-testable) and the Flask layer thin.
 
@@ -79,36 +79,26 @@ Keep domain logic framework-free (unit-testable) and the Flask layer thin.
   - Config backups are in the server user's home: `theorycorner.com.nginx.bak-*`.
 - **Port 16602 is opened on all interfaces** (sshd has `GatewayPorts yes`), but **ufw blocks it** from outside (incoming default deny, IPv6 too). Only nginx reaches it. Keep it that way.
 - **The server and tunnel are systemd user services** (since 2026-10-19): `franticsearch.service` (`FS_PROXY=1 .venv/bin/python -m franticsearch serve` in the repo) and `franticsearch-tunnel.service` (autossh `-R 127.0.0.1:16602:127.0.0.1:6602 theorycorner.com`). Both `Restart=always` and enabled for `default.target`.
-  - Unit files are in `deploy/systemd/`; install with `cp deploy/systemd/*.service ~/.config/systemd/user/ && systemctl --user daemon-reload && systemctl --user enable --now franticsearch franticsearch-tunnel`.
+  - Unit files are in `deploy/systemd/`; install with `cp deploy/systemd/* ~/.config/systemd/user/ && systemctl --user daemon-reload && systemctl --user enable --now franticsearch franticsearch-tunnel franticsearch-backup.timer`.
   - **Restart after code changes**: `systemctl --user restart franticsearch`. Logs: `journalctl --user -u franticsearch -f`.
   - The service runs whatever is checked out in the repo, so the live site serves the current branch.
   - Lingering is off: the services start at login and stop at logout (`loginctl enable-linger` would keep them running without a session). They're down while the laptop sleeps; autossh reconnects after wake.
   - A 502 on the public URL means one of them is down: `systemctl --user status franticsearch franticsearch-tunnel`.
-- **Live DB**: `data/franticsearch.db` (gitignored, ~220 MB with the card cache). Backup before migration 005: `data/franticsearch.db.bak-pre-2b-20261018`.
+- **Live DB**: `data/franticsearch.db` (gitignored, ~220 MB with the card cache). Old manual backup from before migration 005: `data/franticsearch.db.bak-pre-2b-20261018`.
+- **Backups**: `franticsearch-backup.timer` runs `python -m franticsearch backup` nightly at 03:30 (catches up after sleep) into `data/backups/` (gitignored), keeping 14 (~49 MB each). The System page lists them. Check with `systemctl --user list-timers franticsearch-backup.timer`. Local only, no off-machine copy.
+  - **To restore**: `systemctl --user stop franticsearch`, then `python -m franticsearch restore data/backups/<file>.db.gz` (saves the current DB as `<db>.pre-restore-<ts>`, migrates, runs the ledger check), then `systemctl --user start franticsearch`.
 - **Git**: `origin` is SSH (`git@github.com:HallowDance/FranticSearch.git`); `gh` is logged in as HallowDance.
 
 ## Status (2026-10-19)
 
-- Merged to `main`:
-  - #1 phase 1 + Scryfall JSONL sync fix
-  - #2 phase 2 import
-  - #3 reverse-proxy support
+- **All six phases are shipped**, PRs #1–#12 merged to `main`:
+  - #1 phase 1 + Scryfall JSONL sync fix · #2 phase 2 import · #3 reverse-proxy support
   - #4 UI improvements (quick add, paste, move ticked, undo, nav search, sorting, deck groups, mana symbols, image view)
-  - #5 plan
-  - #6 phase 2b users & sharing
-  - #7 location filters
-  - #8 phase 3 card search
-  - #9 docs handoff
+  - #5 plan · #6 phase 2b users & sharing · #7 location filters · #8 phase 3 card search · #9 docs handoff
   - #10 systemd user services for server + tunnel
-  - #11 phase 4 decks (+ "Decks / <name>" display)
+  - #11 phase 4 decks (editor, pull/return lists, mark as built, checks; "Decks / <name>" display)
   - #12 phases 5 & 6 (buy list, exports, proxies, backups + restore, ledger views, phone layout)
 - 98 tests pass.
-- Verified on real data: Scryfall sync (118,893 printings); Moxfield deck text, both exports (100/100); Moxfield collection CSV (337 rows, 0 unresolved, in "Rares Binder").
-- **Unverified**: `docker compose up --build` itself. There's no container runtime on the dev machine; the Dockerfile's steps were replayed outside a container.
-- **Phase 4, decks** (PR #11): editor (new deck, settings, slot page with printing switch, add from search / card page / pasted list), derived status, pull list (per deck and all decks, with "use this printing"), return list, mark as built, stats + format checks. Verified on a copy of the live DB (mark as built: 4 retargeted, 4 pulled, check OK).
-- **Phases 5 & 6** (PR #12): buy list + exports, proxy all short, proxy list, deck export, history by card, backups (timer installed and enabled) + CLI restore, phone layout pass. See PLAN.md § Phases 5 & 6 as built.
-- **Next**: everything in PLAN.md's phase table is built; remaining are the "later" items (Scryfall query syntax, trades, prices) and the to-dos below.
-- Other open to-dos:
-  - Off-machine copies of the backups (only local ones exist).
-  - `FS_SECURE_COOKIE=1` once only HTTPS is used.
-  - Trades between users (PLAN.md § Users & sharing, "later").
+- Verified on real data: Scryfall sync (118,893 printings); Moxfield deck text, both exports (100/100); Moxfield collection CSV (337 rows, 0 unresolved, in "Rares Binder"); phase 4–6 pages via read-only GETs; mark as built and restore on copies of the live DB; phone layout via headless Chromium at 390 px.
+- **Unverified**: `docker compose up --build` itself (no container runtime on the dev machine).
+- **Next**: nothing in progress. Candidates are in PLAN.md § What's next (Scryfall query syntax, trades, prices, off-machine backups, `FS_SECURE_COOKIE=1`, linger, Docker / moving to the server). Ask the user which.
