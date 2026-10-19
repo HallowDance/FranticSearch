@@ -1,0 +1,15 @@
+[Unit]
+Description=FranticSearch reverse SSH tunnel (theorycorner.com:16602 -> 127.0.0.1:6602)
+After=network-online.target
+
+[Service]
+Type=simple
+Environment=AUTOSSH_GATETIME=0
+ExecStart=/usr/bin/autossh -M 0 -N -o BatchMode=yes -o ExitOnForwardFailure=yes \
+    -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o StrictHostKeyChecking=yes \
+    -R 127.0.0.1:16602:127.0.0.1:6602 theorycorner.com
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

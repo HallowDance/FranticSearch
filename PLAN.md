@@ -174,7 +174,7 @@ Domain logic (`ledger.py`, later pull/return planning and import parsing) is fra
 | 4 | Decks | Deck editor (slots, boards, proxies, printing switch), live stats + legality, derived deck state, pull list, return list, "mark as built" | **Next.** Partly there: read-only deck page with type groups, mana curve, in-deck/free counts (PR #2, #4) |
 | 5 | Shortfalls | Proxies, cross-deck buy list, exports | Not started |
 | 6 | Polish | Batch undo, ledger views, mobile layout pass, backup/restore | Partly: batch undo shipped (PR #4) |
-| later | — | Scryfall query syntax, public hosting + auth, prices, scanning, trades between users | Hosting + auth done: reverse proxy (PR #3), in-app login (PR #6). Still to do: run the tunnel/server as permanent services; backups |
+| later | — | Scryfall query syntax, public hosting + auth, prices, scanning, trades between users | Hosting + auth done: reverse proxy (PR #3), in-app login (PR #6). Server + tunnel run as systemd user services (2026-10-19). Still to do: backups |
 
 ### Shipped so far (as of 2026-10-19)
 
@@ -186,7 +186,7 @@ Domain logic (`ledger.py`, later pull/return planning and import parsing) is fra
   - Read-only Decks pages.
   - Card image on hover.
   - Decisions are in § Import / migration.
-- **PR #3, reverse-proxy support.** `FS_PROXY=1` trusts `X-Forwarded-*` including the prefix. Served at `https://theorycorner.com/franticsearch/` via nginx and a reverse SSH tunnel from the dev machine (CLAUDE.md § Deployment). nginx basic auth was replaced by the in-app login in PR #6. The tunnel is not a permanent service yet.
+- **PR #3, reverse-proxy support.** `FS_PROXY=1` trusts `X-Forwarded-*` including the prefix. Served at `https://theorycorner.com/franticsearch/` via nginx and a reverse SSH tunnel from the dev machine (CLAUDE.md § Deployment). nginx basic auth was replaced by the in-app login in PR #6. Server and tunnel became systemd user services on 2026-10-19.
 - **PR #4, UI improvements** (§ 6, § 7):
   - quick add
   - paste a list into a location
@@ -205,4 +205,4 @@ Domain logic (`ledger.py`, later pull/return planning and import parsing) is fra
 ## Open questions
 
 - None blocking.
-- Deployment target: today the app runs on the dev machine behind a reverse SSH tunnel. Revisit before relying on it: permanent services, or move the app onto the server with gunicorn as the Dockerfile does. Also scheduled backups of the SQLite file.
+- Deployment target: today the app runs on the dev machine behind a reverse SSH tunnel. Server and tunnel are systemd user services on the dev machine (2026-10-19). Revisit if the laptop's uptime isn't enough: move the app onto the server with gunicorn as the Dockerfile does. Also scheduled backups of the SQLite file.
