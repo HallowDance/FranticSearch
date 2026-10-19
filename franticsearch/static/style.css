@@ -83,6 +83,10 @@ a.cardlink .peek { display: none; }
   .cardbox { float: none; margin: 0 0 10px; } .cardbox img { width: 180px; }
   #main { margin: 4px; padding: 8px; }
   table.grid { font-size: 12px; display: block; max-width: 100%; overflow-x: auto; }
+  /* Row forms stay on one line (the table scrolls sideways) instead of making rows very tall. */
+  table.grid td.act, table.grid td.mono { white-space: nowrap; }
+  table.grid td.act form.inline + form.inline { margin-left: 4px; }
+  textarea { width: 100%; }
   table.kv { width: 100%; table-layout: fixed; }
   table.kv th { width: 6em; }
   table.kv td input[size], table.kv td select { width: 100%; }

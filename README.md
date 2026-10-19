@@ -2,14 +2,14 @@
 
 Self-hosted Magic: The Gathering collection & deck manager where **every physical card has a location** and decks are just locations. See [PLAN.md](PLAN.md) for the design and roadmap.
 
-Status: phases 1–3 shipped. Features:
+Status: phases 1–6 shipped. Features:
 - **Collection:** card database, locations with filters, stock + ledger with batch undo, collection browser, manual add / move / adjust / remove, quick add, paste a list.
 - **Decks:** built here (search or paste to add, per-slot qty / board / proxies / printing). Status per deck (short / excess), pull and return lists that move the physical cards, "mark as built" for imported decks, mana curve and format checks (legality, copies, size, commander colour identity).
 - **Import:** Moxfield (deck lists → decks; collection CSV → a location), with a queue for lines that need a decision.
 - **Search:** card search with your owned / free counts.
 - **Users:** a few users with separate collections; locations and decks can be shared.
-
-Next: the cross-deck buy list and exports (phase 5).
+- **Shortfalls:** a buy list across all decks, proxies ("proxy all short", proxy print list), exports as plain text / Moxfield / TCGplayer / CSV, deck export.
+- **Backups:** `python -m franticsearch backup` (nightly via a systemd timer) and `restore`.
 
 ## Run with Docker
 
@@ -60,6 +60,8 @@ pytest
 | `franticsearch/decks.py` | decks, their deck locations and slots (editing, printing switch) |
 | `franticsearch/deckplan.py` | derived deck state, pull / return lists, mark as built, deck checks |
 | `franticsearch/importer.py` | Moxfield deck text / collection CSV import and the unresolved queue |
+| `franticsearch/exports.py` | card lists as text / Moxfield / TCGplayer / CSV |
+| `franticsearch/backup.py` | backups and restore |
 | `franticsearch/scryfall.py` | bulk-data sync (`default_cards`) into `printings` |
 | `franticsearch/queries.py` | read-only queries for the UI, location filters, card search |
 | `franticsearch/app.py`, `templates/`, `static/` | Flask UI, plain HTML forms |

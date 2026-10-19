@@ -1,0 +1,8 @@
+[Unit]
+Description=FranticSearch database backup
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/hobbies/dev/python/FranticSearch
+ExecStart=%h/hobbies/dev/python/FranticSearch/.venv/bin/python -m franticsearch backup --keep 14
+Nice=10

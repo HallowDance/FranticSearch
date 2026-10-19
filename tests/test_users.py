@@ -141,7 +141,8 @@ def test_other_users_ids_are_not_found(bob_client, alices):
     gets = [f"/locations/{a['binder']}", f"/decks/{a['deck']}", f"/locations/{a['deck_loc']}",
             f"/import/{a['import']}", f"/import/line/{a['unresolved']}",
             f"/decks/{a['deck']}/slot?slot={sid}", f"/decks/{a['deck']}/pull",
-            f"/decks/{a['deck']}/return", f"/add?deck={a['deck']}&q=sol"]
+            f"/decks/{a['deck']}/return", f"/add?deck={a['deck']}&q=sol",
+            f"/decks/{a['deck']}/export?format=moxfield", f"/decks/{a['deck']}/export?what=proxies"]
     for url in gets:
         assert bob_client.get(url).status_code == 404, url
     posts = [
@@ -169,6 +170,7 @@ def test_other_users_ids_are_not_found(bob_client, alices):
         (f"/decks/{a['deck']}/retarget", {"slot": sid, "printing_id": SOL_C21, "qty": "1"}),
         (f"/decks/{a['deck']}/return", {"all": "1"}),
         (f"/decks/{a['deck']}/build", {}),
+        (f"/decks/{a['deck']}/proxy-short", {}),
     ]
     for url, data in posts:
         assert bob_client.post(url, data=data).status_code == 404, url
@@ -185,7 +187,8 @@ def test_alice_data_untouched_after_bobs_attempts(bob_client, conn, alices):
 
 
 def test_lists_and_totals_are_per_user(bob_client, conn, alices, bob):
-    for url in ["/", "/collection", "/locations", "/decks", "/import", "/history", f"/card/{SOL_ORACLE}"]:
+    for url in ["/", "/collection", "/locations", "/decks", "/import", "/history", f"/card/{SOL_ORACLE}",
+                "/buy", "/buy/export?format=text", "/pull"]:
         page = bob_client.get(url).data
         assert b"Alice deck" not in page and b"Binder</a>" not in page, url
     assert b"Sol Ring" not in bob_client.get("/collection").data
