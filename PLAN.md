@@ -37,7 +37,7 @@ Rules:
 - `stock` and `movements` are always written in the same transaction; `stock` must equal the ledger's projection (a check command verifies this).
 - `acquire`/`import` have a null `from`; `sell`/removal have a null `to`.
 - A manual move between two non-deck locations is `move`; any move into a deck location is a `pull`, out of one a `return`.
-- Deck locations are only changed through their deck's pull/return lists and "mark as built", never by the manual move forms.
+- Deck locations are only changed through their deck's pull/return lists and "mark as built" (which acquires straight into the deck), never by the manual move forms.
 - A location can be deleted only if it never held anything (the ledger refers to it). Otherwise, once empty, it can be **archived**: hidden from lists and forms, kept in history, restorable. Nothing can be added to an archived location.
 - `batch_id` groups one user action (e.g. "confirm pull list") so it can be undone as a unit.
 
@@ -123,7 +123,7 @@ Decided (2026-10-18, UI improvements, pulled forward from phase 6):
 
 Decided with the user:
 - **Slots match copies by printing + finish.** Condition and language don't matter for decks; slots are stored as NM/en. In-deck, free, short, excess and the pull list all ignore condition/language (a deck happily holds an LP copy).
-- **Mark as built retargets**: where a slot's exact printing isn't free but another printing of the card is, the slot switches to that printing, then every free copy is pulled. Leftovers stay short.
+- ~~Mark as built retargets and pulls~~ — **changed 2026-10-19**: "Mark as built" means *I own this deck*: every card it's still short is **added to the collection as new copies, directly in the deck location** (one `acquire` batch, note "mark as built", undoable). Free copies elsewhere are left alone (the pull list moves those); proxies and the maybeboard aren't added. A deck's cards are not part of the collection unless it's marked as built or filled via the pull list. Offered as a checkbox on the deck import form and as a button on any deck with something short.
 
 Details:
 - `deckplan.state()`: copies of a printing + finish at the deck location are shared over its slots in board order (commander, main, side). `short = wanted − in deck − proxies`. Excess = copies nobody wants, including maybe-board cards; worn/foreign copies are offered for return first.
@@ -186,7 +186,7 @@ Decided 2026-10-18: a few people on one instance, each with a **separate collect
 
 1. **Collection CSV** (Moxfield export: Count, Name, Edition, Collector Number, Foil, Condition, Language…) → into a chosen location, default "Unsorted". Resolution by (set, collector number) → fallback (name, set) → unresolved queue for manual fix.
 2. **Deck text export** (`1 Sol Ring (C21) 263 *F*`, sections for commander/sideboard/maybeboard) → creates deck + slots.
-3. **"Mark as built"** per imported deck: confirms the cards physically live in that deck → moves matching stock from non-deck locations into the deck location, switching slots to an owned free printing where the listed one isn't free; leftovers show as short (proxy or buy). Surfaces cases where Moxfield double-counted a card across decks. (Shipped in phase 4.)
+3. **"Mark as built"** (import checkbox or deck page button): you own the deck, so its short cards are added to the collection as new copies, in the deck location. To fill a deck from copies you already have, use the pull list instead. (Phase 4; semantics changed 2026-10-19, see § Phase 4 as built.)
 4. Importing is idempotent per file (hash recorded) to prevent accidental double imports.
 
 Decided for phase 2 (2026-10-18):

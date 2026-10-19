@@ -274,35 +274,25 @@ def confirm_returns(
 
 # --------------------------------------------------------------------------- mark as built
 
-def mark_built(conn: sqlite3.Connection, deck: sqlite3.Row, *, owner: int) -> tuple[str | None, int, int]:
-    """The cards physically live in this deck: pull every free copy the slots want.
+def mark_built(conn: sqlite3.Connection, deck: sqlite3.Row) -> tuple[str | None, int]:
+    """"I own this deck": add every card it's still short to the collection as new
+    copies, directly in the deck location (one ``acquire`` batch, undoable).
 
-    Where the exact printing isn't free but another printing of the card is, the
-    slot is switched to that printing first. Returns (batch, copies pulled,
-    copies retargeted); leftovers stay short (proxy or buy).
+    Copies already in the deck count; proxied copies and the maybeboard are not
+    acquired. Free copies elsewhere are left alone (the pull list moves those).
+    Returns (batch or None, copies added).
     """
     with transaction(conn):
-        _, shortfalls = pull_plan(conn, owner, [deck["id"]])
-        free: dict[tuple[str, str], int] = {}
-        retargeted = 0
-        for sf in shortfalls:
-            need = sf.qty
-            for alt in sf.alternatives:
-                n = min(need, free.setdefault(_pf(alt), alt["qty"]))
-                if n <= 0:
-                    continue
-                decks.retarget(conn, deck["id"], sf.slot["sid"], StockKey(alt["printing_id"], alt["finish"]), n)
-                free[_pf(alt)] -= n
-                need -= n
-                retargeted += n
-                if not need:
-                    break
-        lines, _ = pull_plan(conn, owner, [deck["id"]])
-        if not lines:
-            return None, 0, retargeted
-        batch = ledger.transfer_many(
-            conn, [(l.from_id, l.to_id, l.key, l.qty) for l in lines], "mark as built")
-    return batch, sum(l.qty for l in lines), retargeted
+        wanted: dict[StockKey, int] = {}
+        for s in state(conn, deck)["slots"]:
+            if s["short"]:
+                key = StockKey(s["printing_id"], s["finish"])
+                wanted[key] = wanted.get(key, 0) + s["short"]
+        if not wanted:
+            return None, 0
+        batch = ledger.acquire_many(conn, deck["location_id"], wanted.items(), note="mark as built",
+                                    reason="acquire")
+    return batch, sum(wanted.values())
 
 
 # --------------------------------------------------------------------------- stats & checks
