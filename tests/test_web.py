@@ -1,6 +1,8 @@
+import pytest
 from conftest import ALICE, BOLT, PASSWORD, SOL_C21, SOL_CMM, SOL_ORACLE, login_as
 
 from franticsearch import ledger, locations
+from franticsearch.app import create_app, safe_next
 from franticsearch.ledger import StockKey
 
 
@@ -48,6 +50,25 @@ def test_redirect_next_must_be_local(client, conn):
     loc = locations.create(conn, "Binder A", "binder", owner=ALICE)
     r = client.post("/stock/sell", data={"printing_id": "x", "qty": "1", "location_id": loc,
                                          "next": "//evil.example/"})
+    assert r.headers["Location"] == "/collection"
+
+
+@pytest.mark.parametrize("nxt", ["//evil.example/", "/\t/evil.example", "/\n/evil.example",
+                                 "/\\evil.example", "https://evil.example/", "evil.example",
+                                 "/\x7f/evil.example", " /x"])
+def test_safe_next_rejects_offsite(nxt):
+    assert safe_next(nxt, "/home") == "/home"
+
+
+@pytest.mark.parametrize("nxt", ["/", "/collection", "/add?q=sol%20ring&deck=3", "/decks/1#contents",
+                                 "/franticsearch/locations/2?sort=-qty"])
+def test_safe_next_keeps_local_paths(nxt):
+    assert safe_next(nxt, "/home") == nxt
+
+
+def test_tab_in_next_does_not_redirect_offsite(client, conn):
+    # Werkzeug drops the tab when building Location: this used to send "//evil.example"
+    r = client.post("/stock/acquire", data={"next": "/\t/evil.example"})
     assert r.headers["Location"] == "/collection"
 
 
@@ -257,3 +278,20 @@ def test_card_search_filters(client, conn):
     assert b"1 card." in page and b"2 printings</summary>" in page and b"2 / 2" in page
     assert b"/stock/quick-add" in page
     assert b"No cards match" in client.get("/add?q=zzzz").data
+
+
+def test_secret_key_first_stored_wins(tmp_path, monkeypatch):
+    """Two workers starting on a new DB must end up with the same key."""
+    from franticsearch import db
+    path = str(tmp_path / "new.db")
+    monkeypatch.delenv("FS_SECRET_KEY", raising=False)
+    first = create_app({"DATABASE": path, "AUTO_SYNC": False}).secret_key
+    real_get_meta = db.get_meta
+    calls = []
+
+    def stale_get_meta(conn, key, default=None):   # the 2nd worker read before the 1st stored
+        calls.append(key)
+        return None if key == "secret_key" and calls.count(key) == 1 else real_get_meta(conn, key, default)
+
+    monkeypatch.setattr(db, "get_meta", stale_get_meta)
+    assert create_app({"DATABASE": path, "AUTO_SYNC": False}).secret_key == first
