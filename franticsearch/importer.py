@@ -323,6 +323,15 @@ def _check_new(conn: sqlite3.Connection, sha: str, owner: int | None) -> None:
                            f" (import #{prev['id']})")
 
 
+def _insert_import(conn: sqlite3.Connection, sql: str, args: tuple) -> int:
+    """Insert the import record. The duplicate check runs in the same transaction, but
+    UNIQUE(owner_id, sha256) is the last word: report it like the check would."""
+    try:
+        return conn.execute(sql, args).lastrowid
+    except sqlite3.IntegrityError:
+        raise ImportFailed("this was already imported") from None
+
+
 def _queue(conn: sqlite3.Connection, import_id: int, line: Line, problem: str) -> None:
     conn.execute(
         "INSERT INTO import_unresolved(import_id, line_no, raw, qty, name, set_code,"
@@ -342,7 +351,6 @@ def import_collection(
     loc = conn.execute("SELECT type, owner_id FROM locations WHERE id = ?", (location_id,)).fetchone()
     if loc is None:
         raise ImportFailed("unknown location")
-    _check_new(conn, sha, loc["owner_id"])
     if loc["type"] == "deck":
         raise ImportFailed("import into a binder or box; decks are filled by 'mark as built'")
     resolved: dict[StockKey, int] = {}
@@ -357,11 +365,13 @@ def import_collection(
         else:
             unresolved.append((line, problem))
     with transaction(conn):
-        import_id = conn.execute(
+        _check_new(conn, sha, loc["owner_id"])
+        import_id = _insert_import(
+            conn,
             "INSERT INTO imports(kind, filename, sha256, location_id, owner_id, lines, imported, skipped)"
             " VALUES ('collection', ?, ?, ?, ?, ?, ?, ?)",
             (filename, sha, location_id, loc["owner_id"], len(lines), sum(resolved.values()), skipped),
-        ).lastrowid
+        )
         if resolved:
             batch = ledger.acquire_many(
                 conn, location_id, resolved.items(), note=_note(import_id, filename)
@@ -385,17 +395,18 @@ def import_deck(
     """Create ``owner``'s deck (and its location) from a deck list. Returns the import id."""
     normalized = "\n".join(l.rstrip() for l in text.replace("\r\n", "\n").strip().split("\n"))
     sha = _sha(normalized.encode())
-    _check_new(conn, sha, owner)
     lines = parse_deck_text(normalized, after_blank, first_is_commander=format_ in decks.COMMANDER_FORMATS)
     if not lines:
         raise ImportFailed("no cards found in the deck list")
     with transaction(conn):
+        _check_new(conn, sha, owner)
         deck_id = decks.create(conn, name, format_, owner=owner)
-        import_id = conn.execute(
+        import_id = _insert_import(
+            conn,
             "INSERT INTO imports(kind, filename, sha256, deck_id, owner_id, lines)"
             " VALUES ('deck', ?, ?, ?, ?, ?)",
             (filename, sha, deck_id, owner, len(lines)),
-        ).lastrowid
+        )
         imported = 0
         for line in lines:
             key, problem = resolve(conn, line, allow_default=True, owner=owner)

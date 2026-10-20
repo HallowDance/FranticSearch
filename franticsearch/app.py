@@ -10,6 +10,7 @@ import secrets
 import sqlite3
 import threading
 import time
+from urllib.parse import urlsplit
 
 from flask import (
     Flask, abort, flash, g, redirect, render_template, request, session, url_for,
@@ -52,9 +53,12 @@ def create_app(config: dict | None = None) -> Flask:
     db.migrate(conn)
     secret = os.environ.get("FS_SECRET_KEY") or db.get_meta(conn, "secret_key")
     if not secret:
-        secret = secrets.token_hex(32)
+        # Several workers may start at once on a new database: the first key stored
+        # wins, and everyone uses that one (else sessions only work on one worker).
         with db.transaction(conn):
-            db.set_meta(conn, "secret_key", secret)
+            conn.execute("INSERT OR IGNORE INTO meta(key, value) VALUES ('secret_key', ?)",
+                         (secrets.token_hex(32),))
+        secret = db.get_meta(conn, "secret_key")
     app.secret_key = secret
     conn.close()
 
@@ -189,10 +193,23 @@ def _form_qty(name: str = "qty") -> int:
     return qty
 
 
+def safe_next(value: str | None, default: str) -> str:
+    r"""``value`` if it is a path on this site, else ``default`` (no open redirects).
+
+    Browsers drop tabs/newlines and read ``\`` as ``/`` in URLs, so ``/<tab>/evil.com``
+    or ``/\evil.com`` would turn into ``//evil.com``: reject those characters too.
+    """
+    value = value or ""
+    if (not value.startswith("/") or value.startswith("//") or "\\" in value
+            or any(ord(c) < 0x20 or ord(c) == 0x7F for c in value)):
+        return default
+    parts = urlsplit(value)
+    return default if parts.scheme or parts.netloc else value
+
+
 def _back(default: str) -> str:
     """Redirect target: a local 'next' path if given, else ``default``."""
-    nxt = request.form.get("next") or request.args.get("next") or ""
-    return nxt if nxt.startswith("/") and not nxt.startswith("//") else default
+    return safe_next(request.form.get("next") or request.args.get("next"), default)
 
 
 def _uid() -> int:
@@ -1019,8 +1036,7 @@ def _register_routes(app: Flask) -> None:
     @app.route("/login", methods=["GET", "POST"])
     def login():
         conn = g.db
-        nxt = request.values.get("next", "")
-        nxt = nxt if nxt.startswith("/") and not nxt.startswith("//") else url_for("index")
+        nxt = safe_next(request.values.get("next"), url_for("index"))
         if request.method == "POST":
             user = users.authenticate(conn, request.form.get("username", ""),
                                       request.form.get("password", ""))

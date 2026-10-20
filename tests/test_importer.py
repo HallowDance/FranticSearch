@@ -239,3 +239,20 @@ def test_deck_with_moved_cards_cannot_be_deleted(conn):
     assert (slot["in_deck"], slot["free"], slot["owned_any"]) == (1, 0, 1)
     with pytest.raises(ledger.LedgerError, match="cannot be deleted"):
         decks.delete(conn, deck["id"])
+
+
+def test_duplicate_import_race_is_reported_not_crashed(conn, monkeypatch):
+    """Two submits of the same file racing past the duplicate check: the second one
+    hits UNIQUE(owner_id, sha256) and must still be a clean ImportFailed."""
+    loc = locations.create(conn, "Binder", "binder", owner=ALICE)
+    data = b"Count,Name,Edition,Collector Number\n1,Sol Ring,c21,263\n"
+    importer.import_collection(conn, data, loc)
+    monkeypatch.setattr(importer, "_check_new", lambda *a: None)
+    with pytest.raises(ImportFailed, match="already imported"):
+        importer.import_collection(conn, data, loc)
+    importer.import_deck(conn, "1 Sol Ring", "D", owner=ALICE)
+    with pytest.raises(ImportFailed, match="already imported"):
+        importer.import_deck(conn, "1 Sol Ring", "E", owner=ALICE)
+    assert [d["name"] for d in decks.list_all(conn, ALICE)] == ["D"]   # E rolled back
+    assert ledger.qty_at(conn, loc, StockKey(SOL_C21)) == 1
+    assert ledger.check(conn) == []
