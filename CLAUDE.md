@@ -10,6 +10,8 @@ FranticSearch: self-hosted MTG collection & deck manager where **every physical 
   - For a stacked branch, merge the lower PR first, then open the next against `main`.
 - After code changes, run `pytest` and check the change against the real DB too, e.g. read-only GETs via `app.test_client()` with `session["uid"] = 1`. Then restart the server (`systemctl --user restart franticsearch`): it caches templates.
 - UI: functional, server-rendered HTML forms, no JS (not even inline); deliberately plain 90s/00s FOSS look (grey chrome, blue links, bordered tables). Keep it usable at phone width (no horizontal page scroll). Don't spend long on polish.
+  - Without JS a `<select>` does nothing until submitted: for switching a view (format, mode), prefer one link per choice with the active one in bold (as the view switch and buy list do), and put what changes near the top of the page.
+  - Phone check: headless `chromium --headless --window-size=390,1800 --screenshot=…` against a copy of the DB, with a throwaway app that sets `session["uid"]` in a `before_request` inserted before `_auth`.
 
 ## Commands
 
@@ -70,7 +72,7 @@ Keep domain logic framework-free (unit-testable) and the Flask layer thin.
 - Strict ownership: a copy is in exactly one location; no cross-deck swap suggestions.
 - Locations with ledger history can't be deleted; once empty they can be **archived**.
 
-## Deployment (live, as of 2026-10-19)
+## Deployment (live, as of 2026-10-20)
 
 - **Public URL**: `https://theorycorner.com/franticsearch/`, with the app's own login.
   - Users: `hallowdance` (admin, the owner) and `FallenShaman` (their brother). Passwords are not stored in the repo; reset with `user passwd`.
@@ -85,20 +87,21 @@ Keep domain logic framework-free (unit-testable) and the Flask layer thin.
   - Lingering is off: the services start at login and stop at logout (`loginctl enable-linger` would keep them running without a session). They're down while the laptop sleeps; autossh reconnects after wake.
   - A 502 on the public URL means one of them is down: `systemctl --user status franticsearch franticsearch-tunnel`.
 - **Live DB**: `data/franticsearch.db` (gitignored, ~220 MB with the card cache). Old manual backup from before migration 005: `data/franticsearch.db.bak-pre-2b-20261018`.
-- **Backups**: `franticsearch-backup.timer` runs `python -m franticsearch backup` nightly at 03:30 (catches up after sleep) into `data/backups/` (gitignored), keeping 14 (~49 MB each). The System page lists them. Check with `systemctl --user list-timers franticsearch-backup.timer`. Local only, no off-machine copy.
+- **Backups**: `franticsearch-backup.timer` runs `python -m franticsearch backup` nightly at 03:30 (catches up after sleep) into `data/backups/` (gitignored), keeping 14 (~49 MB each). The System page lists them. Check with `systemctl --user list-timers franticsearch-backup.timer`. Local only, no off-machine copy. First (manual) backup: 2026-10-19; the first timer run was due the night of 2026-10-20.
   - **To restore**: `systemctl --user stop franticsearch`, then `python -m franticsearch restore data/backups/<file>.db.gz` (saves the current DB as `<db>.pre-restore-<ts>`, migrates, runs the ledger check), then `systemctl --user start franticsearch`.
 - **Git**: `origin` is SSH (`git@github.com:HallowDance/FranticSearch.git`); `gh` is logged in as HallowDance.
 
-## Status (2026-10-19)
+## Status (2026-10-20)
 
-- **All six phases are shipped**, PRs #1–#12 merged to `main`:
+- **All six phases are shipped**, PRs #1–#16 merged to `main`:
   - #1 phase 1 + Scryfall JSONL sync fix · #2 phase 2 import · #3 reverse-proxy support
   - #4 UI improvements (quick add, paste, move ticked, undo, nav search, sorting, deck groups, mana symbols, image view)
   - #5 plan · #6 phase 2b users & sharing · #7 location filters · #8 phase 3 card search · #9 docs handoff
   - #10 systemd user services for server + tunnel
   - #11 phase 4 decks (editor, pull/return lists, mark as built, checks; "Decks / <name>" display)
   - #12 phases 5 & 6 (buy list, exports, proxies, backups + restore, ledger views, phone layout)
+  - #13 docs · #14 buy list format links · #15 mark as built = add new copies in the deck (import checkbox + deck button) · #16 README refresh
 - 98 tests pass.
-- Verified on real data: Scryfall sync (118,893 printings); Moxfield deck text, both exports (100/100); Moxfield collection CSV (337 rows, 0 unresolved, in "Rares Binder"); phase 4–6 pages via read-only GETs; mark as built and restore on copies of the live DB; phone layout via headless Chromium at 390 px.
+- Verified on real data: Scryfall sync (118,893 printings); Moxfield deck text, both exports (100/100); Moxfield collection CSV (337 rows, 0 unresolved, in "Rares Binder"); phase 4–6 pages via read-only GETs; mark as built (old pull version, then the new acquire version: Millicent 100 short → complete) and restore on copies of the live DB; phone layout via headless Chromium at 390 px.
 - **Unverified**: `docker compose up --build` itself (no container runtime on the dev machine).
 - **Next**: nothing in progress. Candidates are in PLAN.md § What's next (Scryfall query syntax, trades, prices, off-machine backups, `FS_SECURE_COOKIE=1`, linger, Docker / moving to the server). Ask the user which.

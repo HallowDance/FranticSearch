@@ -1,6 +1,7 @@
-"""Derived deck state, pull and return lists, "mark as built", deck checks.
+"""Derived deck state, pull and return lists, "mark as built", buy list, deck checks.
 
-PLAN.md § Data model ("Derived deck state") and § Core workflows 1–3, 5. Nothing
+PLAN.md § Data model ("Derived deck state"), § Core workflows 1–3, 5, § Phase 4
+as built, § Phases 5 & 6 as built. Nothing
 here is stored: it's all computed from slots + stock. The confirm functions hand
 the moves to the ledger as one batch, recomputing the plan first, so a stale
 page can't move more than the plan allows.

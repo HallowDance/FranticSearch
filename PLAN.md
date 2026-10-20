@@ -13,7 +13,7 @@ A self-hosted MTG collection & deck manager built around one idea: **every physi
 | Locations | Flat, named, typed: `binder` · `box` · `deck` · `lent` · `other`. Each deck owns exactly one location, shown in the UI as "Decks / <deck>" (§ Decks in the UI) |
 | Deck slots | Always an **exact printing** + finish; condition and language don't matter for decks (§ Phase 4 as built) |
 | Contention | **Strict**: a copy is in exactly one place. If the needed copies are all in other decks, the slot is short |
-| Deck ↔ collection | **Pull/return workflow**: a deck is a target list; stock only moves when you confirm a physical move |
+| Deck ↔ collection | **Pull/return workflow**: a deck is a target list; stock only moves when you confirm a physical move. A deck's cards join the collection only via the pull list (copies you have) or **mark as built** ("I own this deck": new copies, in the deck) |
 | Extras in scope | Moxfield/CSV import · proxies & shortfall/buy list · exports · backups |
 | Out of scope (for now) | Prices, card scanning, open sign-up / large-scale hosting, trades between users (later, see § Users & sharing), Moxfield re-sync |
 
@@ -223,7 +223,7 @@ Domain logic (`ledger.py`, `deckplan.py` for deck state and pull/return planning
 | 6 | Polish | Batch undo, ledger views, mobile layout pass, backup/restore | **Shipped** (PR #12; batch undo in PR #4) |
 | later | — | Scryfall query syntax, public hosting + auth, prices, scanning, trades between users | Hosting + auth done: reverse proxy (PR #3), in-app login (PR #6), systemd services (PR #10), nightly local backups (PR #12). The rest: § What's next |
 
-### Shipped so far (as of 2026-10-19)
+### Shipped so far (as of 2026-10-20)
 
 - **PR #1, Phase 1 foundation.** Plus a sync fix: Scryfall now serves `default_cards` only as gzipped JSON Lines (`jsonl_download_uri`); the importer reads that and legacy JSON arrays. Verified live: ~119k printings in ~25 s.
 - **PR #2, Phase 2 import.**
@@ -251,10 +251,14 @@ Domain logic (`ledger.py`, `deckplan.py` for deck state and pull/return planning
 - **PR #10, permanent services**: the app server and the reverse SSH tunnel run as systemd user services (`deploy/systemd/`).
 - **PR #11, Phase 4 decks** (§ Phase 4 as built, § Decks in the UI): deck editor, derived state, pull / return lists, mark as built, deck checks; deck locations shown as "Decks / <name>".
 - **PR #12, Phases 5 & 6** (§ Phases 5 & 6 as built): buy list, exports, proxies, deck export, backups + restore, history by card, phone layout pass.
+- **PR #13, docs** after phases 4–6, including § What's next.
+- **PR #14, buy list format links**: the format dropdown looked broken without JS; now one link per format, list above the table.
+- **PR #15, mark as built acquires**: "Mark as built" adds the deck's short cards to the collection as new copies, in the deck (import checkbox + deck page button), replacing pull + retarget (§ Phase 4 as built).
+- **PR #16, README** brought up to date.
 
 ## What's next
 
-All six phases are shipped (2026-10-19). Nothing is in progress; the user picks the next item. Candidates:
+All six phases are shipped (2026-10-19), plus follow-ups #14–#16 (2026-10-20). Nothing is in progress; the user picks the next item. Candidates:
 
 Features (from "later"):
 - **Scryfall query syntax** subset (`t:`, `o:`, `c<=`, `mv=` …) in the Search box, on top of the structured filters (§ 5).
