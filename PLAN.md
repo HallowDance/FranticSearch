@@ -15,7 +15,8 @@ A self-hosted MTG collection & deck manager built around one idea: **every physi
 | Contention | **Strict**: a copy is in exactly one place. If the needed copies are all in other decks, the slot is short |
 | Deck ↔ collection | **Pull/return workflow**: a deck is a target list; stock only moves when you confirm a physical move. A deck's cards join the collection only via the pull list (copies you have) or **mark as built** ("I own this deck": new copies, in the deck) |
 | Extras in scope | Moxfield/CSV import · proxies & shortfall/buy list · exports · backups |
-| Out of scope (for now) | Prices, card scanning, open sign-up / large-scale hosting, trades between users (later, see § Users & sharing), Moxfield re-sync |
+| Hosting model | **FOSS, self-hosted per person or friend group** (decided 2026-10-20). Never open sign-up or a shared public service: accounts stay admin-created. Federation between instances may be explored later |
+| Out of scope (for now) | Prices, card scanning, trades between users (later, see § Users & sharing), Moxfield re-sync. Open sign-up is out of scope permanently |
 
 ## Data model
 
@@ -260,6 +261,8 @@ Domain logic (`ledger.py`, `deckplan.py` for deck state and pull/return planning
 
 All six phases are shipped (2026-10-19), plus follow-ups #14–#16 (2026-10-20). Nothing is in progress; the user picks the next item. Candidates:
 
+A code review focused on scalability, with a staged infrastructure guide and a prioritised backlog, is in [docs/SCALING.md](docs/SCALING.md) (2026-10-20). Its items are recommendations until picked here.
+
 Features (from "later"):
 - **Scryfall query syntax** subset (`t:`, `o:`, `c<=`, `mv=` …) in the Search box, on top of the structured filters (§ 5).
 - **Trades between users**: a confirmed two-sided move with a `trade` reason pair in both ledgers (§ Users & sharing). Needs a migration (reason CHECK constraint).
@@ -270,7 +273,8 @@ Operations:
 - **Off-machine copies of the backups** (only local ones exist; the laptop is a single point of failure). Not chosen in phase 6; still open.
 - `FS_SECURE_COOKIE=1` once the site is only used over HTTPS.
 - `loginctl enable-linger` if the site should run while the owner is logged out (it still stops while the laptop sleeps).
-- Verify `docker compose up --build` in a real container, or move the app onto the server (gunicorn), if the laptop's uptime isn't enough.
+- Verify `docker compose up --build` in a real container.
+- The live instance stays on the laptop behind the reverse SSH tunnel (decided 2026-10-20); moving it onto the server is not planned for now.
 
 Considered and dropped (2026-10-19):
 - A proxy **PDF** (card images 9 per page for printing): the user decided it isn't needed; the text proxy list for proxy printing sites stays.
