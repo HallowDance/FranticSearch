@@ -23,7 +23,7 @@ A self-hosted MTG collection & deck manager built around one idea: **every physi
 | Table | Columns / purpose |
 |---|---|
 | `printings` | Scryfall bulk cache: `scryfall_id` (PK), `oracle_id`, `name`, `set`, `set_name`, `collector_number`, `released_at`, `finishes`, `lang`, `mana_cost`, `cmc`, `colors`, `color_identity`, `type_line`, `oracle_text`, `legalities`, image URIs (incl. card faces). FTS index on `name`, `type_line`, `oracle_text` |
-| `users` | `id`, `username`, `password_hash`, `is_admin` (phase 2b) |
+| `users` | `id`, `username`, `password_hash`, `is_admin` (phase 2b), `disabled` (007) |
 | `locations` | `id`, `owner_id`, `name` (unique per owner), `type`, `notes`, `archived`, `visibility`, `share_token` |
 | `stock` | (`location_id`, `printing_id`, `finish`, `condition`, `lang`) → `qty` (> 0). **Single source of truth for physical whereabouts** |
 | `movements` | Append-only ledger: `id`, `ts`, `owner_id`, `from_location`, `to_location`, printing key, `qty`, `reason` (`import` · `acquire` · `pull` · `return` · `move` · `adjust` · `sell`), `note`, `batch_id`, `undo_of` (the batch an undo reverses) |
@@ -32,7 +32,7 @@ A self-hosted MTG collection & deck manager built around one idea: **every physi
 | `imports`, `import_unresolved` | One row per imported file / deck list (owner, sha256 for duplicate refusal), and the lines that need a decision (phase 2) |
 | `meta` | Key/value: Scryfall sync state, generated secret key |
 
-Schema history: `migrations/001`–`006` (005 = users & sharing; 006 = `movements.owner_id`, the owner of each movement, for fast per-user history; docs/SCALING.md § P3).
+Schema history: `migrations/001`–`007` (005 = users & sharing; 006 = `movements.owner_id`, the owner of each movement, for fast per-user history, docs/SCALING.md § P3; 007 = `users.disabled`).
 
 Rules:
 - `stock` and `movements` are always written in the same transaction; `stock` must equal the ledger's projection (a check command verifies this).
@@ -166,6 +166,10 @@ Details:
 Decided 2026-10-18: a few people on one instance, each with a **separate collection**; locations (incl. decks) can be shared.
 
 - **Accounts**: created by the admin (`python -m franticsearch user add NAME [--admin]`, plus an admin page). No sign-up. Users change their own password. Passwords hashed with werkzeug (`scrypt`/`pbkdf2`).
+- **Admin Users page** (decided 2026-10-21):
+  - A blank password when creating an account or setting one generates a password (14 characters, no look-alikes). It's shown once, rendered into the response, never kept in the cookie session.
+  - Accounts can be **disabled** and enabled again (migration 007 `users.disabled`; also `user disable` / `user enable` on the CLI). Disabled = no login, existing sessions end, and what the account shared is hidden from others: People page, card pages, shared views, share links 404. Nothing is deleted.
+  - You can't disable your own account, and the last enabled admin can't be disabled.
 - **Login**: in-app login page and session cookie (replaced the earlier nginx basic-auth prompt). Login rate-limited (nginx `limit_req`). All POST forms carry a per-session CSRF token. Session cookie `HttpOnly`, `SameSite=Lax`, `Secure` behind HTTPS.
 - **Ownership**: `users` table; `locations.owner_id` (and `imports.owner_id`). Stock, movements and decks belong to a user through their locations.
   - Location names are unique **per user** (migration 005 rebuilt the table for this).

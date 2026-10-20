@@ -20,6 +20,8 @@ VISIBILITIES = ("private", "users", "link")
 UNSORTED = "Unsorted"
 VISIBILITY_NAMES = {"private": "Private", "users": "Shared with users",
                     "link": "Shared with users + anyone with the link"}
+# A location plus whether its owner's account is disabled (shared views hide those).
+_COLUMNS = "l.*, COALESCE((SELECT disabled FROM users u WHERE u.id = l.owner_id), 0) AS owner_disabled"
 
 
 def _clean(name: str, type_: str) -> str:
@@ -56,7 +58,7 @@ def shared(conn: sqlite3.Connection, viewer: int | None = None) -> list[sqlite3.
              FROM locations l JOIN users u ON u.id = l.owner_id
              LEFT JOIN decks d ON d.location_id = l.id
              LEFT JOIN stock s ON s.location_id = l.id
-            WHERE l.visibility IN ('users', 'link') AND l.archived = 0
+            WHERE l.visibility IN ('users', 'link') AND l.archived = 0 AND u.disabled = 0
               AND (? IS NULL OR l.owner_id <> ?)
             GROUP BY l.id ORDER BY u.username COLLATE NOCASE, l.type = 'deck', l.name COLLATE NOCASE""",
         (viewer, viewer),
@@ -69,14 +71,14 @@ def can_view(loc: sqlite3.Row | None, user_id: int | None) -> bool:
         return False
     if loc["owner_id"] == user_id and user_id is not None:
         return True
-    return user_id is not None and loc["visibility"] in ("users", "link")
+    return user_id is not None and loc["visibility"] in ("users", "link") and not loc["owner_disabled"]
 
 
 def by_token(conn: sqlite3.Connection, token: str) -> sqlite3.Row | None:
     if not token:
         return None
     return conn.execute(
-        "SELECT * FROM locations WHERE share_token = ? AND visibility = 'link'", (token,)
+        f"SELECT {_COLUMNS} FROM locations l WHERE share_token = ? AND visibility = 'link'", (token,)
     ).fetchone()
 
 
@@ -97,7 +99,7 @@ def set_visibility(conn: sqlite3.Connection, location_id: int, visibility: str,
 
 
 def get(conn: sqlite3.Connection, location_id: int) -> sqlite3.Row | None:
-    return conn.execute("SELECT * FROM locations WHERE id = ?", (location_id,)).fetchone()
+    return conn.execute(f"SELECT {_COLUMNS} FROM locations l WHERE id = ?", (location_id,)).fetchone()
 
 
 def create(conn: sqlite3.Connection, name: str, type_: str, notes: str = "", *, owner: int) -> int:

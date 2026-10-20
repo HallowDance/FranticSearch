@@ -20,7 +20,7 @@ Status: phases 1–6 of the plan are shipped; the app runs for a few users. Plai
 - **Decks:** built here (add from search, a card page or a pasted list; per-card quantity, board, proxies, printing and finish). Status per deck (complete / short / excess), pull and return lists for one deck or all decks, mark as built, mana curve, colours, format checks (legality, copy limits, deck size, commander colour identity).
 - **Shortfalls:** a buy list across all decks (noting when you own another printing), "proxy all short", a proxy list, exports as plain text, Moxfield, TCGplayer mass entry or CSV, and deck export.
 - **Import:** Moxfield deck lists (both text exports, optionally marked as built) and collection CSVs, with a queue for lines that need a decision.
-- **Users:** a few accounts, created by the admin, each with a separate collection. Locations and decks can be shared read-only with other users or by link.
+- **Users:** a few accounts, created by the admin (Users page or CLI; leave the password blank for a generated one), each with a separate collection. Accounts can be disabled and enabled again. Locations and decks can be shared read-only with other users or by link.
 - **Backups:** gzipped online backups (nightly with the systemd timer) and a checked restore.
 
 ## Run locally
@@ -49,6 +49,7 @@ On first start, `serve` downloads the Scryfall card data in the background (~80 
 | `python -m franticsearch restore FILE [--force] [--port 6602]` | replace the database with a backup. Refuses while the server port is in use; keeps the current DB as `*.pre-restore-*`, migrates and checks the ledger |
 | `python -m franticsearch user add NAME [--admin] [--password-stdin]` | create an account (the first admin adopts any data from before accounts existed) |
 | `python -m franticsearch user passwd NAME` · `user list` | set a password, list accounts |
+| `python -m franticsearch user disable NAME` · `user enable NAME` | block an account's login and hide what it shared, or undo that (the last admin can't be disabled) |
 
 All commands take `--db PATH`.
 

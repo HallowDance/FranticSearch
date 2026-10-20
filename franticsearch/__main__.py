@@ -11,6 +11,7 @@
                    replace the database with a backup (stop the server first)
   user add NAME [--admin] [--password-stdin]
   user passwd NAME [--password-stdin]
+  user disable NAME | user enable NAME
   user list        manage accounts (the first admin adopts data from before users)
 """
 
@@ -63,6 +64,9 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--password-stdin", action="store_true", help="read the password from stdin")
         if name == "add":
             p.add_argument("--admin", action="store_true")
+    for name, help_ in (("disable", "block an account's login and hide what it shared"),
+                        ("enable", "let a disabled account log in again")):
+        usub.add_parser(name, help=help_).add_argument("name")
     usub.add_parser("list", help="list accounts")
 
     args = parser.parse_args(argv)
@@ -145,7 +149,8 @@ def _user_cmd(conn, args: argparse.Namespace) -> int:
         if args.ucmd == "list":
             for u in users.list_all(conn):
                 print(f"{u['username']:<20} {'admin' if u['is_admin'] else '':<6}"
-                      f" {u['locations']:>4} locations {u['copies']:>6} copies")
+                      f" {u['locations']:>4} locations {u['copies']:>6} copies"
+                      + ("  DISABLED" if u["disabled"] else ""))
             return 0
         if args.ucmd == "add":
             first_admin = args.admin and not any(u["is_admin"] for u in users.list_all(conn))
@@ -155,6 +160,10 @@ def _user_cmd(conn, args: argparse.Namespace) -> int:
         user = users.by_name(conn, args.name)
         if user is None:
             raise users.LedgerError(f"no user {args.name!r}")
+        if args.ucmd in ("disable", "enable"):
+            users.set_disabled(conn, user["id"], args.ucmd == "disable")
+            print(f"{args.name} {args.ucmd}d")
+            return 0
         users.set_password(conn, user["id"], _read_password(args))
         print(f"password set for {args.name}")
         return 0

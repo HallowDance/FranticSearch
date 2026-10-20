@@ -260,3 +260,71 @@ def test_share_link_works_without_login_and_can_be_revoked(client, app, conn, al
     dtoken = locations.get(conn, alices["deck_loc"])["share_token"]
     page = anon.get(f"/s/{dtoken}").data
     assert b"Alice deck" in page and b"Where (free)" not in page
+
+
+# --------------------------------------------------------------------------- admin: generated passwords, disabling
+
+def test_admin_generated_passwords(client, conn):
+    r = client.post("/admin/users", data={"username": "carol", "password": ""})
+    assert r.status_code == 200      # rendered straight away, not via a (cookie) flash
+    page = r.data.decode()
+    pw = re.search(r"Password for <b>carol</b>: <code>([^<]+)</code>", page).group(1)
+    assert len(pw) == users.GENERATED_LENGTH and users.authenticate(conn, "carol", pw)
+    assert pw not in client.get("/admin/users").data.decode()       # shown once
+    with client.session_transaction() as sess:
+        assert pw not in str(dict(sess))
+
+    carol = users.by_name(conn, "carol")["id"]
+    page = client.post(f"/admin/users/{carol}/password", data={"password": ""}).data.decode()
+    new = re.search(r"<code>([^<]+)</code>", page).group(1)
+    assert new != pw and users.authenticate(conn, "carol", new) and not users.authenticate(conn, "carol", pw)
+    assert client.post("/admin/users/999/password", data={"password": ""}).status_code == 404
+
+
+def test_disabled_account_cannot_log_in_and_its_sharing_is_hidden(app, client, bob, bob_client, conn):
+    binder = locations.create(conn, "Bob's binder", "binder", owner=bob)
+    ledger.acquire(conn, binder, StockKey(SOL_C21), 1)
+    locations.set_visibility(conn, binder, "link")
+    token = locations.get(conn, binder)["share_token"]
+    anon = app.test_client()
+
+    def visible() -> list[bool]:
+        return [b"Bob&#39;s binder" in client.get("/people").data,
+                b"bob" in client.get(f"/card/{SOL_ORACLE}").data,
+                client.get(f"/locations/{binder}").status_code == 200,
+                anon.get(f"/s/{token}").status_code == 200]
+
+    assert visible() == [True] * 4
+    r = client.post(f"/admin/users/{bob}/disabled", data={"disabled": "1"}, follow_redirects=True)
+    assert b"bob disabled" in r.data and b"disabled</td>" in r.data
+    assert visible() == [False] * 4
+    assert bob_client.get("/collection").status_code == 302                  # session ended
+    assert users.authenticate(conn, "bob", "bob's password") is None         # and no new login
+    assert b"Wrong username or password" in app.test_client().post(
+        "/login", data={"username": "bob", "password": "bob's password"}, follow_redirects=True).data
+
+    client.post(f"/admin/users/{bob}/disabled", data={"disabled": "0"})
+    assert visible() == [True] * 4 and users.authenticate(conn, "bob", "bob's password")
+    assert ledger.qty_at(conn, binder, StockKey(SOL_C21)) == 1               # nothing was deleted
+
+
+def test_admins_cannot_lock_everyone_out(client, bob, bob_client, conn):
+    r = client.post(f"/admin/users/{ALICE}/disabled", data={"disabled": "1"}, follow_redirects=True)
+    assert b"can&#39;t disable your own account" in r.data
+    with pytest.raises(LedgerError, match="last admin"):
+        users.set_disabled(conn, ALICE, True)
+    assert client.post("/admin/users/999/disabled", data={"disabled": "1"}).status_code == 404
+    assert bob_client.post(f"/admin/users/{ALICE}/disabled", data={"disabled": "0"}).status_code == 403
+    users.create(conn, "admin2", "admin2 password", is_admin=True)
+    users.set_disabled(conn, ALICE, True)              # another admin can still log in: allowed
+    assert client.get("/admin/users").status_code == 302   # alice's own session is over
+
+
+def test_cli_disable_enable(db_path, conn, bob):
+    run = lambda *a: subprocess.run(  # noqa: E731
+        [sys.executable, "-m", "franticsearch", "--db", db_path, "user", *a], capture_output=True, text=True)
+    assert run("disable", "bob").returncode == 0 and users.get(conn, bob)["disabled"]
+    assert "DISABLED" in run("list").stdout
+    assert run("disable", "alice").returncode == 1        # the last admin
+    assert run("enable", "bob").returncode == 0 and not users.get(conn, bob)["disabled"]
+    assert run("enable", "nobody").returncode == 1

@@ -149,6 +149,7 @@ def shared_stock(conn: sqlite3.Connection, card_key: str, viewer: int) -> list[s
              JOIN users u ON u.id = l.owner_id
             WHERE (p.oracle_id = ? OR (p.oracle_id IS NULL AND p.scryfall_id = ?))
               AND l.visibility IN ('users', 'link') AND l.archived = 0 AND l.owner_id <> ?
+              AND u.disabled = 0
             ORDER BY u.username COLLATE NOCASE, l.name COLLATE NOCASE""",
         (card_key, card_key, viewer),
     ).fetchall()
