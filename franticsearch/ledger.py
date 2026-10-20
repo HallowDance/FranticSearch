@@ -88,11 +88,8 @@ def _owner(conn: sqlite3.Connection, location_id: int) -> int | None:
 
 
 def batch_owners(conn: sqlite3.Connection, batch_id: str) -> set[int | None]:
-    """Owners of the locations a batch touched (one owner, since moves stay in a collection)."""
-    return {r[0] for r in conn.execute(
-        """SELECT l.owner_id FROM movements m
-             JOIN locations l ON l.id IN (m.from_location_id, m.to_location_id)
-            WHERE m.batch_id = ?""", (batch_id,))}
+    """Owners of the movements in a batch (one owner, since moves stay in a collection)."""
+    return {r[0] for r in conn.execute("SELECT owner_id FROM movements WHERE batch_id = ?", (batch_id,))}
 
 
 def qty_at(conn: sqlite3.Connection, location_id: int, key: StockKey) -> int:
@@ -141,7 +138,8 @@ def _record(
         raise LedgerError("quantity must be positive")
     if from_id is not None and from_id == to_id:
         raise LedgerError("source and destination are the same location")
-    if from_id is not None and to_id is not None and _owner(conn, from_id) != _owner(conn, to_id):
+    owner = _owner(conn, from_id if from_id is not None else to_id)
+    if from_id is not None and to_id is not None and _owner(conn, to_id) != owner:
         raise LedgerError("cards can't be moved between different users' collections")
     validate_key(conn, key)
     if from_id is not None:
@@ -154,9 +152,9 @@ def _record(
         _change(conn, to_id, key, qty)
     conn.execute(
         "INSERT INTO movements(batch_id, from_location_id, to_location_id, printing_id,"
-        " finish, condition, lang, qty, reason, note, undo_of)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (batch_id, from_id, to_id, *key.as_tuple(), qty, reason, note, undo_of),
+        " finish, condition, lang, qty, reason, note, undo_of, owner_id)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (batch_id, from_id, to_id, *key.as_tuple(), qty, reason, note, undo_of, owner),
     )
 
 

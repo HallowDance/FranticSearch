@@ -80,6 +80,7 @@ def main(argv: list[str] | None = None) -> int:
 
     conn = db.connect(path)
     applied = db.migrate(conn)
+    db.optimize(conn)
     if args.cmd == "migrate":
         print("applied: " + ", ".join(applied) if applied else "schema up to date")
         return 0
@@ -87,6 +88,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.file:
             with open(args.file, "rb") as fp:
                 n = scryfall.import_stream(conn, fp, progress=lambda n: print(f"\r{n} cards", end=""))
+            db.optimize(conn, checkpoint=True)
             print(f"\nimported {n} printings from {args.file}")
         else:
             print(scryfall.sync(conn, force=args.force))

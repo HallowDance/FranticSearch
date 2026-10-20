@@ -47,14 +47,15 @@ def deck_stock(conn: sqlite3.Connection, location_id: int) -> list[sqlite3.Row]:
     ).fetchall()
 
 
-def state(conn: sqlite3.Connection, deck: sqlite3.Row) -> dict:
+def state(conn: sqlite3.Connection, deck: sqlite3.Row, *, counts: bool = False) -> dict:
     """Per slot ``in_deck`` / ``short``, plus the deck's excess stock lines.
 
     Copies of a printing + finish at the deck location are shared out over its
     slots in board order (commander, main, side). ``short`` = wanted − in deck −
     proxies. Excess = copies nobody wants (including maybe-board cards).
+    ``counts``: also the slots' free / where / any-printing counts (deck page).
     """
-    slots = [dict(r) for r in decks.slots(conn, deck["id"])]
+    slots = [dict(r) for r in decks.slots(conn, deck["id"], counts=counts)]
     stock = deck_stock(conn, deck["location_id"])
     left: dict[tuple[str, str], int] = {}
     for r in stock:
@@ -152,11 +153,14 @@ def pull_plan(
     """
     pool = _free_pool(conn, owner)
     by_pf: dict[tuple[str, str], list[dict]] = {}
+    by_oracle: dict[str, list[dict]] = {}
     for p in pool:
         by_pf.setdefault(_pf(p), []).append(p)
+        by_oracle.setdefault(p["oracle_id"], []).append(p)
     lines: dict[str, PullLine] = {}
     shortfalls: list[Shortfall] = []
-    for deck in _owner_decks(conn, owner, deck_ids):
+    owner_decks = _owner_decks(conn, owner, deck_ids)
+    for deck in owner_decks:
         for s in state(conn, deck)["slots"]:
             need = s["short"]
             for src in by_pf.get(_pf(s), []) if need else []:
@@ -176,10 +180,12 @@ def pull_plan(
                     break
             if need:
                 shortfalls.append(Shortfall(deck["id"], deck["name"], s, need))
+    deck_locations = {d["id"]: d["location_id"] for d in owner_decks}
+    in_decks = _in_decks(conn, owner) if shortfalls else {}
     for sf in shortfalls:   # what's still free after the exact pulls
         alts: dict[tuple[str, str], dict] = {}
-        for p in pool:
-            if p["qty"] and p["oracle_id"] == sf.slot["oracle_id"] and _pf(p) != _pf(sf.slot):
+        for p in by_oracle.get(sf.slot["oracle_id"], []) if sf.slot["oracle_id"] else []:
+            if p["qty"] and _pf(p) != _pf(sf.slot):
                 a = alts.setdefault(_pf(p), {"printing_id": p["printing_id"], "finish": p["finish"],
                                              "set_code": p["set_code"], "collector_number": p["collector_number"],
                                              "qty": 0, "where": []})
@@ -187,17 +193,20 @@ def pull_plan(
                 if p["location_name"] not in a["where"]:
                     a["where"].append(p["location_name"])
         sf.alternatives = sorted(alts.values(), key=lambda a: -a["qty"])
-        sf.in_other_decks = [r[0] for r in conn.execute(
-            """SELECT DISTINCT l.name FROM stock s JOIN locations l ON l.id = s.location_id
-                WHERE l.owner_id = ? AND l.type = 'deck' AND l.id <> ?
-                  AND s.printing_id = ? AND s.finish = ? ORDER BY l.name""",
-            (owner, _deck_location(conn, sf.deck_id),
-             sf.slot["printing_id"], sf.slot["finish"]))]
+        sf.in_other_decks = sorted({name for loc_id, name in in_decks.get(_pf(sf.slot), [])
+                                    if loc_id != deck_locations[sf.deck_id]})
     return list(lines.values()), shortfalls
 
 
-def _deck_location(conn: sqlite3.Connection, deck_id: int) -> int:
-    return conn.execute("SELECT location_id FROM decks WHERE id = ?", (deck_id,)).fetchone()[0]
+def _in_decks(conn: sqlite3.Connection, owner: int) -> dict[tuple[str, str], list[tuple[int, str]]]:
+    """(printing, finish) → [(deck location id, name)] over the owner's deck locations."""
+    found: dict[tuple[str, str], list[tuple[int, str]]] = {}
+    for r in conn.execute(
+        """SELECT s.printing_id, s.finish, l.id, l.name FROM stock s JOIN locations l ON l.id = s.location_id
+            WHERE l.owner_id = ? AND l.type = 'deck'""", (owner,),
+    ):
+        found.setdefault((r[0], r[1]), []).append((r[2], r[3]))
+    return found
 
 
 def confirm_pulls(

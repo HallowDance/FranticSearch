@@ -26,13 +26,13 @@ A self-hosted MTG collection & deck manager built around one idea: **every physi
 | `users` | `id`, `username`, `password_hash`, `is_admin` (phase 2b) |
 | `locations` | `id`, `owner_id`, `name` (unique per owner), `type`, `notes`, `archived`, `visibility`, `share_token` |
 | `stock` | (`location_id`, `printing_id`, `finish`, `condition`, `lang`) → `qty` (> 0). **Single source of truth for physical whereabouts** |
-| `movements` | Append-only ledger: `id`, `ts`, `from_location`, `to_location`, printing key, `qty`, `reason` (`import` · `acquire` · `pull` · `return` · `move` · `adjust` · `sell`), `note`, `batch_id`, `undo_of` (the batch an undo reverses) |
+| `movements` | Append-only ledger: `id`, `ts`, `owner_id`, `from_location`, `to_location`, printing key, `qty`, `reason` (`import` · `acquire` · `pull` · `return` · `move` · `adjust` · `sell`), `note`, `batch_id`, `undo_of` (the batch an undo reverses) |
 | `decks` | `id`, `name`, `format`, `location_id`, `notes` |
 | `deck_slots` | `deck_id`, printing key (always NM/en), `board` (`main` · `side` · `commander` · `maybe`), `qty_wanted`, `qty_proxy` |
 | `imports`, `import_unresolved` | One row per imported file / deck list (owner, sha256 for duplicate refusal), and the lines that need a decision (phase 2) |
 | `meta` | Key/value: Scryfall sync state, generated secret key |
 
-Schema history: `migrations/001`–`005` (005 = users & sharing). Nothing after phase 2b needed a migration.
+Schema history: `migrations/001`–`006` (005 = users & sharing; 006 = `movements.owner_id`, the owner of each movement, for fast per-user history; docs/SCALING.md § P3).
 
 Rules:
 - `stock` and `movements` are always written in the same transaction; `stock` must equal the ledger's projection (a check command verifies this).

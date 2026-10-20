@@ -175,3 +175,36 @@ def test_undo_rules(conn):
     with pytest.raises(LedgerError, match="imports"):
         ledger.undo(conn, imp)
     assert ledger.check(conn) == []
+
+
+def test_every_movement_records_its_owner(conn, locs):
+    from franticsearch import users
+    bob = users.create(conn, "bob", "correct horse")
+    bobs = locations.create(conn, "Bob's box", "box", owner=bob)
+    ledger.acquire(conn, locs["binder"], StockKey(SOL_C21), 3)
+    batch = ledger.move(conn, locs["binder"], locs["box"], StockKey(SOL_C21), 2)
+    ledger.adjust(conn, locs["box"], StockKey(SOL_C21), 1)
+    ledger.sell(conn, locs["binder"], StockKey(SOL_C21), 1)
+    ledger.acquire(conn, bobs, StockKey(BOLT), 1)
+    ledger.undo(conn, ledger.acquire(conn, bobs, StockKey(BOLT), 1))
+    assert ledger.batch_owners(conn, batch) == {ALICE}
+    bad = conn.execute(
+        """SELECT m.id FROM movements m JOIN locations l
+             ON l.id = COALESCE(m.from_location_id, m.to_location_id)
+            WHERE m.owner_id IS NOT l.owner_id""").fetchall()
+    assert bad == [] and conn.execute("SELECT COUNT(*) FROM movements").fetchone()[0] == 7
+    assert {r[0] for r in conn.execute("SELECT owner_id FROM movements")} == {ALICE, bob}
+
+
+def test_first_admin_adopts_ownerless_movements(tmp_path):
+    from franticsearch import db, scryfall, users
+    from conftest import FIXTURE
+    c = db.connect(tmp_path / "pre-users.db")
+    db.migrate(c)
+    with open(FIXTURE, "rb") as fp:
+        scryfall.import_stream(c, fp)
+    loc = c.execute("INSERT INTO locations(name, type) VALUES ('Box', 'box')").lastrowid
+    ledger.acquire(c, loc, StockKey(SOL_C21), 1)
+    assert c.execute("SELECT owner_id FROM movements").fetchone()[0] is None
+    uid = users.create(c, "admin", "correct horse", is_admin=True)
+    assert c.execute("SELECT owner_id FROM movements").fetchone()[0] == uid
