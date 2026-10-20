@@ -229,20 +229,9 @@ def list_all(conn: sqlite3.Connection, owner: int) -> list[sqlite3.Row]:
         (owner,),
     ).fetchall()
 
+# Per-slot copy counts for ``slots()`` (correlated subqueries: the slow part).
 
-def slots(conn: sqlite3.Connection, deck_id: int) -> list[sqlite3.Row]:
-    """Slots with printing info and where matching copies are.
-
-    ``in_deck`` = copies of the printing + finish at the deck's location (shared by
-    slots of the same printing on several boards; ``deckplan.state`` splits it);
-    ``free`` = the deck owner's copies of the printing + finish outside any deck;
-    ``owned_any`` = the owner's copies of any printing of the card.
-    """
-    return conn.execute(
-        """SELECT ds.*, p.name, p.set_code, p.collector_number, p.type_line, p.mana_cost, p.cmc,
-                  p.image_normal AS image, p.oracle_id, p.colors, p.color_identity,
-                  p.legalities, p.oracle_text,
-                  COALESCE(p.oracle_id, p.scryfall_id) AS card_key,
+_SLOT_COUNTS = """,
                   (SELECT COALESCE(SUM(s.qty), 0) FROM stock s
                     WHERE s.location_id = d.location_id AND s.printing_id = ds.printing_id
                       AND s.finish = ds.finish
@@ -257,7 +246,26 @@ def slots(conn: sqlite3.Connection, deck_id: int) -> list[sqlite3.Row]:
                   ) AS free_where,
                   (SELECT COALESCE(SUM(s.qty), 0) FROM stock s JOIN printings p2 ON p2.scryfall_id = s.printing_id
                      JOIN locations l ON l.id = s.location_id
-                    WHERE p2.oracle_id = p.oracle_id AND l.owner_id = dl.owner_id) AS owned_any
+                    WHERE p2.oracle_id = p.oracle_id AND l.owner_id = dl.owner_id) AS owned_any"""
+
+
+def slots(conn: sqlite3.Connection, deck_id: int, *, counts: bool = True) -> list[sqlite3.Row]:
+    """Slots with printing info and where matching copies are.
+
+    ``in_deck`` = copies of the printing + finish at the deck's location (shared by
+    slots of the same printing on several boards; ``deckplan.state`` splits it);
+    ``free`` = the deck owner's copies of the printing + finish outside any deck;
+    ``owned_any`` = the owner's copies of any printing of the card.
+
+    ``counts=False`` leaves out those four columns (subqueries per slot): the pull
+    list, buy list and Decks page compute state for every deck and don't need them.
+    """
+    return conn.execute(
+        f"""SELECT ds.*, p.name, p.set_code, p.collector_number, p.type_line, p.mana_cost, p.cmc,
+                  p.image_normal AS image, p.oracle_id, p.colors, p.color_identity,
+                  p.legalities, p.oracle_text,
+                  COALESCE(p.oracle_id, p.scryfall_id) AS card_key
+                  {_SLOT_COUNTS if counts else ""}
              FROM deck_slots ds
              JOIN decks d ON d.id = ds.deck_id
              JOIN locations dl ON dl.id = d.location_id
@@ -268,6 +276,7 @@ def slots(conn: sqlite3.Connection, deck_id: int) -> list[sqlite3.Row]:
                      p.name COLLATE NOCASE""",
         (deck_id,),
     ).fetchall()
+
 
 
 def delete(conn: sqlite3.Connection, deck_id: int) -> None:

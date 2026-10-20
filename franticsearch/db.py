@@ -103,3 +103,13 @@ def set_meta(conn: sqlite3.Connection, key: str, value: str) -> None:
         "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         (key, value),
     )
+
+
+def optimize(conn: sqlite3.Connection, checkpoint: bool = False) -> None:
+    """Refresh the query planner's statistics where they're missing or stale (cheap:
+    sampled, and a no-op when nothing changed). ``checkpoint``: also fold the WAL back
+    into the database and truncate it, e.g. after a card sync."""
+    conn.execute("PRAGMA analysis_limit = 1000")
+    conn.execute("PRAGMA optimize = 0x10002")
+    if checkpoint:
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")

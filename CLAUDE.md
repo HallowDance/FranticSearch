@@ -37,7 +37,7 @@ Env: `FS_DB` (default `data/franticsearch.db`), `FS_AUTO_SYNC` (default `1`), `F
 
 | File | Role |
 |---|---|
-| `franticsearch/migrations/NNN_*.sql` | Schema; latest is `005_users.sql`. Append a new numbered file for every change; never edit applied ones. The runner disables FKs per migration (so tables can be rebuilt) and runs `foreign_key_check` before COMMIT. Version in `PRAGMA user_version`. |
+| `franticsearch/migrations/NNN_*.sql` | Schema; latest is `006_movement_owner.sql` (`movements.owner_id`, set by `ledger._record`). Append a new numbered file for every change; never edit applied ones. The runner disables FKs per migration (so tables can be rebuilt) and runs `foreign_key_check` before COMMIT. Version in `PRAGMA user_version`. |
 | `db.py` | Connections (WAL, FKs on, autocommit), **re-entrant** `transaction()` (joins an open one, so domain functions compose atomically), migration runner, `meta` helpers |
 | `ledger.py` | **The only code that changes `stock`.** acquire(_many) / move(_many) / transfer_many (several from→to pairs, one batch) / adjust / sell / undo write stock + `movements` in one transaction. Refuses moves between two users' locations. `check()` verifies the invariant. Also `LANGUAGES`, `CONDITIONS`, `StockKey`, `validate_key`. |
 | `users.py` | Accounts: create (first admin adopts ownerless locations/imports), authenticate (constant-ish time), set password |

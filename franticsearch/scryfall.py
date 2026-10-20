@@ -28,7 +28,7 @@ import ijson
 import requests
 
 from . import __version__
-from .db import get_meta, set_meta, transaction
+from .db import get_meta, optimize, set_meta, transaction
 
 log = logging.getLogger(__name__)
 
@@ -47,10 +47,14 @@ _COLUMNS = (
     "oracle_text", "legalities", "image_small", "image_normal",
     "face_name", "set_type", "digital", "promo",
 )
+# Unchanged printings are left alone: an update would also rewrite their FTS entries,
+# and Scryfall republishes the whole file daily while only a few cards change.
 _UPSERT_SQL = (
     f"INSERT INTO printings({', '.join(_COLUMNS)}) VALUES ({', '.join('?' * len(_COLUMNS))})"
     f" ON CONFLICT(scryfall_id) DO UPDATE SET "
     + ", ".join(f"{c} = excluded.{c}" for c in _COLUMNS[1:])
+    + f" WHERE ({', '.join(f'printings.{c}' for c in _COLUMNS[1:])})"
+    + f" IS NOT ({', '.join(f'excluded.{c}' for c in _COLUMNS[1:])})"
 )
 
 # Only one sync per process at a time (web button + background thread).
@@ -190,6 +194,7 @@ def sync(
             count = import_stream(
                 conn, tmp, progress=lambda n: _status(conn, "importing", sync_progress=str(n))
             )
+        optimize(conn, checkpoint=True)
         result = f"imported {count} printings (Scryfall file of {updated_at})"
         _status(
             conn, "idle",

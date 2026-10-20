@@ -50,6 +50,7 @@ def create_app(config: dict | None = None) -> Flask:
 
     conn = db.connect(app.config["DATABASE"])
     db.migrate(conn)
+    db.optimize(conn)
     secret = os.environ.get("FS_SECRET_KEY") or db.get_meta(conn, "secret_key")
     if not secret:
         secret = secrets.token_hex(32)
@@ -249,7 +250,7 @@ def _deck_context(deck: sqlite3.Row) -> dict:
     keys = {"name": lambda s: s["name"].lower(), "cost": lambda s: (s["cmc"] or 0, s["name"].lower()),
             "qty": lambda s: (s["qty_wanted"], s["name"].lower())}
     key = keys.get(sort.lstrip("-"), keys["name"])
-    st = deckplan.state(g.db, deck)
+    st = deckplan.state(g.db, deck, counts=True)
     slots = st["slots"]
     boards = {b: [s for s in slots if s["board"] == b] for b in decks.BOARDS}
     return dict(

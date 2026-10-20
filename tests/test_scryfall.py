@@ -33,6 +33,22 @@ def test_reimport_upserts_without_duplicates(conn):
     assert [r["name"] for r in queries.search_cards(conn, "bolt")] == ["Lightning Bolt"]
 
 
+def test_resync_skips_unchanged_printings(conn, tmp_path):
+    """Scryfall republishes the whole file daily: unchanged rows (and their FTS
+    entries) must not be rewritten; changed ones are."""
+    with open(FIXTURE, "rb") as fp:
+        cards = json.load(fp)
+    before = conn.total_changes
+    scryfall.import_stream(conn, io.BytesIO(json.dumps(cards).encode()))
+    assert conn.total_changes == before
+
+    bolt = next(c for c in cards if c["name"] == "Lightning Bolt")
+    bolt["oracle_text"] = "Lightning Bolt deals 3 damage to any target. Zap."
+    scryfall.import_stream(conn, io.BytesIO(json.dumps(cards).encode()))
+    assert conn.total_changes > before
+    assert [r["name"] for r in queries.search(conn, queries.CardSearch(text="zap"), 1)[0]] == ["Lightning Bolt"]
+
+
 def test_non_card_objects_are_skipped(tmp_path):
     conn = db.connect(tmp_path / "y.db")
     db.migrate(conn)

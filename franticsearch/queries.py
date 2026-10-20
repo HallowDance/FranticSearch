@@ -110,19 +110,20 @@ def collection(
 
 def totals(conn: sqlite3.Connection, owner: int | None) -> sqlite3.Row:
     """Counts for one user's collection (``owner`` None = the whole instance)."""
+    # Separate SQL per case: "? IS NULL OR owner_id = ?" would keep SQLite off the indexes.
+    def mine(alias: str) -> str:
+        return f"{alias}.owner_id = :o" if owner is not None else "1"
     return conn.execute(
-        """SELECT (SELECT COALESCE(SUM(s.qty), 0) FROM stock s JOIN locations l ON l.id = s.location_id
-                    WHERE :o IS NULL OR l.owner_id = :o) AS copies,
-                  (SELECT COUNT(DISTINCT p.oracle_id) FROM stock s
-                     JOIN printings p ON p.scryfall_id = s.printing_id
-                     JOIN locations l ON l.id = s.location_id
-                    WHERE :o IS NULL OR l.owner_id = :o) AS cards,
-                  (SELECT COUNT(*) FROM printings) AS printings,
-                  (SELECT COUNT(*) FROM locations WHERE (:o IS NULL OR owner_id = :o) AND type <> 'deck'
-                      AND archived = 0) AS locations,
-                  (SELECT COUNT(*) FROM movements m WHERE :o IS NULL OR EXISTS (
-                      SELECT 1 FROM locations l WHERE l.owner_id = :o
-                         AND l.id IN (m.from_location_id, m.to_location_id))) AS movements""",
+        f"""SELECT (SELECT COALESCE(SUM(s.qty), 0) FROM stock s JOIN locations l ON l.id = s.location_id
+                     WHERE {mine('l')}) AS copies,
+                   (SELECT COUNT(DISTINCT p.oracle_id) FROM stock s
+                      JOIN printings p ON p.scryfall_id = s.printing_id
+                      JOIN locations l ON l.id = s.location_id
+                     WHERE {mine('l')}) AS cards,
+                   (SELECT COUNT(*) FROM printings) AS printings,
+                   (SELECT COUNT(*) FROM locations l WHERE {mine('l')} AND l.type <> 'deck'
+                       AND l.archived = 0) AS locations,
+                   (SELECT COUNT(*) FROM movements m WHERE {mine('m')}) AS movements""",
         {"o": owner},
     ).fetchone()
 
@@ -429,7 +430,7 @@ def history(
     page: int = 1,
 ) -> list[sqlite3.Row]:
     """A user's movements (both ends of a move are always in the same collection)."""
-    clauses = ["COALESCE(fl.owner_id, tl.owner_id) = ?"]
+    clauses = ["m.owner_id = ?"]
     args: list = [owner]
     if location_id:
         clauses.append("(m.from_location_id = ? OR m.to_location_id = ?)")

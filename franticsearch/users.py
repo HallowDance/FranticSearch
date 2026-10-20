@@ -42,6 +42,7 @@ def create(conn: sqlite3.Connection, username: str, password: str, is_admin: boo
             ).fetchone():
                 conn.execute("UPDATE locations SET owner_id = ? WHERE owner_id IS NULL", (uid,))
                 conn.execute("UPDATE imports SET owner_id = ? WHERE owner_id IS NULL", (uid,))
+                conn.execute("UPDATE movements SET owner_id = ? WHERE owner_id IS NULL", (uid,))
     except sqlite3.IntegrityError:
         raise LedgerError(f"user {username!r} already exists") from None
     return uid
