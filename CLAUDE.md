@@ -17,7 +17,7 @@ FranticSearch: self-hosted MTG collection & deck manager where **every physical 
 
 ```sh
 python3 -m venv .venv && . .venv/bin/activate && pip install -e ".[dev,serve]"
-pytest                                   # full suite, ~12 s, no network (98 tests)
+pytest                                   # full suite, ~12 s, no network (122 tests)
 python -m franticsearch serve            # dev server http://127.0.0.1:6602 (auto-syncs Scryfall)
 python -m franticsearch serve --no-auto-sync
 python -m franticsearch migrate          # apply pending migrations (serve also does this)
@@ -28,6 +28,7 @@ python -m franticsearch backup [--dir D] [--keep 14]   # gzipped online backup �
 python -m franticsearch restore FILE [--force]         # stop the server first; saves the current DB
 python -m franticsearch user add NAME [--admin] [--password-stdin]   # first admin adopts ownerless data
 python -m franticsearch user passwd NAME [--password-stdin] | user list
+python -m franticsearch user disable NAME | user enable NAME   # also on the web Users page
 docker compose up -d --build             # production-style, DB in ./data (never actually run yet)
 ```
 
@@ -37,10 +38,10 @@ Env: `FS_DB` (default `data/franticsearch.db`), `FS_AUTO_SYNC` (default `1`), `F
 
 | File | Role |
 |---|---|
-| `franticsearch/migrations/NNN_*.sql` | Schema; latest is `006_movement_owner.sql` (`movements.owner_id`, set by `ledger._record`). Append a new numbered file for every change; never edit applied ones. The runner disables FKs per migration (so tables can be rebuilt) and runs `foreign_key_check` before COMMIT. Version in `PRAGMA user_version`. |
+| `franticsearch/migrations/NNN_*.sql` | Schema; latest is `007_user_disabled.sql` (006 = `movements.owner_id`, set by `ledger._record`; 007 = `users.disabled`). Append a new numbered file for every change; never edit applied ones. The runner disables FKs per migration (so tables can be rebuilt) and runs `foreign_key_check` before COMMIT. Version in `PRAGMA user_version`. |
 | `db.py` | Connections (WAL, FKs on, autocommit), **re-entrant** `transaction()` (joins an open one, so domain functions compose atomically), migration runner, `meta` helpers |
 | `ledger.py` | **The only code that changes `stock`.** acquire(_many) / move(_many) / transfer_many (several from→to pairs, one batch) / adjust / sell / undo write stock + `movements` in one transaction. Refuses moves between two users' locations. `check()` verifies the invariant. Also `LANGUAGES`, `CONDITIONS`, `StockKey`, `validate_key`. |
-| `users.py` | Accounts: create (first admin adopts ownerless locations/imports), authenticate (constant-ish time), set password |
+| `users.py` | Accounts: create (first admin adopts ownerless locations/imports/movements), authenticate (constant-ish time; refuses disabled accounts), set password, `generate_password()`, `set_disabled()` (never the last enabled admin) |
 | `locations.py` | Location CRUD (owner, names unique per owner), archive, visibility (`private` < `users` < `link`) + share tokens, `can_view`, `shared()` for the People page, `unsorted()` (the owner's "Unsorted" box, created on use) |
 | `decks.py` | Deck + its same-named deck location (`update` renames both), `add_slot`, `edit_slot` (qty / proxy / board / printing / finish; merges, qty 0 removes), `retarget`, slot ids `printing\|finish\|cond\|lang\|board`, `slots()` (in-deck / free / where / any-printing, scoped to the deck owner), `grouped()` by card type, `mana_curve()`, delete (only if the deck location has no history). `BOARDS`, `FORMATS`, `COMMANDER_FORMATS`. |
 | `deckplan.py` | Phases 4–5, computed never stored: `buy_list()`, `proxy_short()`, `state()` (per-slot in_deck / short, excess lines), `pull_plan()` / `confirm_pulls()` (one deck or all; free copies planned once), `return_plan()` / `confirm_returns()` (default = last pull source, else Unsorted), `mark_built()` (acquire what's short as new copies into the deck location; not pulls), `analysis()` (colours, legality, copy limits, size, commander identity). Confirm functions recompute the plan, so stale forms can't over-move. |
@@ -91,9 +92,9 @@ Keep domain logic framework-free (unit-testable) and the Flask layer thin.
   - **To restore**: `systemctl --user stop franticsearch`, then `python -m franticsearch restore data/backups/<file>.db.gz` (saves the current DB as `<db>.pre-restore-<ts>`, migrates, runs the ledger check), then `systemctl --user start franticsearch`.
 - **Git**: `origin` is SSH (`git@github.com:HallowDance/FranticSearch.git`); `gh` is logged in as HallowDance.
 
-## Status (2026-10-20)
+## Status (2026-10-21)
 
-- **All six phases are shipped**, PRs #1–#16 merged to `main`:
+- **All six phases are shipped**, PRs #1–#20 merged to `main`:
   - #1 phase 1 + Scryfall JSONL sync fix · #2 phase 2 import · #3 reverse-proxy support
   - #4 UI improvements (quick add, paste, move ticked, undo, nav search, sorting, deck groups, mana symbols, image view)
   - #5 plan · #6 phase 2b users & sharing · #7 location filters · #8 phase 3 card search · #9 docs handoff
@@ -101,7 +102,9 @@ Keep domain logic framework-free (unit-testable) and the Flask layer thin.
   - #11 phase 4 decks (editor, pull/return lists, mark as built, checks; "Decks / <name>" display)
   - #12 phases 5 & 6 (buy list, exports, proxies, backups + restore, ledger views, phone layout)
   - #13 docs · #14 buy list format links · #15 mark as built = add new copies in the deck (import checkbox + deck button) · #16 README refresh
-- 98 tests pass.
+  - #17 docs · #18 code review + expansion guide (`docs/SCALING.md`; hosting model: self-hosted per friend group, never open sign-up)
+  - #19 security fixes (open redirect via `next`, import double-submit, secret-key race) · #20 performance (pull plan, lean deck state, migration 006 `movements.owner_id`, sync change guard, `PRAGMA optimize`)
+- 122 tests pass.
 - Verified on real data: Scryfall sync (118,893 printings); Moxfield deck text, both exports (100/100); Moxfield collection CSV (337 rows, 0 unresolved, in "Rares Binder"); phase 4–6 pages via read-only GETs; mark as built (old pull version, then the new acquire version: Millicent 100 short → complete) and restore on copies of the live DB; phone layout via headless Chromium at 390 px.
 - **Unverified**: `docker compose up --build` itself (no container runtime on the dev machine).
-- **Next**: nothing in progress. Candidates are in PLAN.md § What's next (Scryfall query syntax, trades, prices, off-machine backups, `FS_SECURE_COOKIE=1`, linger, Docker / moving to the server). Ask the user which.
+- **Next**: nothing in progress. Candidates: `docs/SCALING.md` § Prioritised backlog (Stage 1: harden in place, off-machine backups; Stage 3: FOSS packaging, licence) and PLAN.md § What's next (Scryfall query syntax, trades, prices). Ask the user which.

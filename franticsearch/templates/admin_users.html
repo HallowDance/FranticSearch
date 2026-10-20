@@ -1,21 +1,28 @@
 {% extends "base.html" %}{% block title %}Users{% endblock %}
 {% block body %}
 <h1>Users</h1>
+{% if generated %}
+<div class="flash ok">Password for <b>{{ generated[0] }}</b>: <code>{{ generated[1] }}</code><br>
+Shown only this once. Hand it over yourself; they can change it under their name in the top bar.</div>
+{% endif %}
 <table class="grid">
-<tr><th>User</th><th>Admin</th><th>Locations</th><th>Copies</th><th>Created (UTC)</th><th>Set password</th></tr>
+<tr><th>User</th><th>Admin</th><th>Status</th><th>Locations</th><th>Copies</th><th>Created (UTC)</th><th>Set password</th><th></th></tr>
 {% for u in users %}
-<tr><td>{{ u.username }}</td><td>{{ 'yes' if u.is_admin else '' }}</td><td class="num">{{ u.locations }}</td><td class="num">{{ u.copies }}</td>
+<tr><td>{{ u.username }}</td><td>{{ 'yes' if u.is_admin else '' }}</td><td>{{ 'disabled' if u.disabled else 'active' }}</td>
+<td class="num">{{ u.locations }}</td><td class="num">{{ u.copies }}</td>
 <td class="mono">{{ u.created_at[:16].replace('T', ' ') }}</td>
-<td><form class="inline" method="post" action="{{ url_for('admin_set_password', user_id=u.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="password" name="password" size="14" minlength="8" autocomplete="new-password" aria-label="new password for {{ u.username }}" required> <button>Set</button></form></td></tr>
+<td><form class="inline" method="post" action="{{ url_for('admin_set_password', user_id=u.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="password" name="password" size="14" minlength="8" autocomplete="new-password" aria-label="new password for {{ u.username }}" placeholder="blank = generate"> <button>Set</button></form></td>
+<td>{% if u.id != user.id %}<form class="inline" method="post" action="{{ url_for('admin_set_disabled', user_id=u.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="disabled" value="{{ '0' if u.disabled else '1' }}"><button>{{ 'Enable' if u.disabled else 'Disable' }}</button></form>{% endif %}</td></tr>
 {% endfor %}
 </table>
 <form method="post" action="{{ url_for('admin_users') }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
 <fieldset><legend>New user</legend>
 Username <input name="username" size="16" required pattern="[A-Za-z0-9_.\-]{2,32}">
-Password <input type="password" name="password" size="16" minlength="8" autocomplete="new-password" required>
+Password <input type="password" name="password" size="16" minlength="8" autocomplete="new-password" placeholder="blank = generate">
 <label><input type="checkbox" name="is_admin" value="1"> admin</label>
 <button>Create</button>
-<div class="muted">Hand the password over yourself; they can change it under their name in the top bar.</div>
+<div class="muted">Leave the password blank to get a generated one, shown once. Hand it over yourself; they can change it under their name in the top bar.</div>
 </fieldset>
 </form>
+<p class="muted">Disabling an account blocks its login and ends its sessions, and hides what it shared (People page, card pages, shared views, share links). Nothing is deleted; enabling brings it all back.</p>
 {% endblock %}

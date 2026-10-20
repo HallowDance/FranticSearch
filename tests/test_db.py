@@ -5,9 +5,9 @@ def test_migrate_is_idempotent(tmp_path):
     conn = db.connect(tmp_path / "x.db")
     first = db.migrate(conn)
     assert first == ["001_initial.sql", "002_location_archive.sql", "003_imports.sql",
-                     "004_undo.sql", "005_users.sql", "006_movement_owner.sql"]
+                     "004_undo.sql", "005_users.sql", "006_movement_owner.sql", "007_user_disabled.sql"]
     assert db.migrate(conn) == []
-    assert db.schema_version(conn) == 6
+    assert db.schema_version(conn) == 7
     tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert {"printings", "locations", "stock", "movements", "decks", "deck_slots", "meta",
             "imports", "import_unresolved", "users"} <= tables
@@ -53,6 +53,6 @@ def test_006_backfills_movement_owners(tmp_path, monkeypatch):
             ('b5', NULL, 4, 'p', 'nonfoil', 'NM', 'en', 1, 'acquire');
     """)
     monkeypatch.setattr(db, "_migrations", lambda: all_migrations)
-    assert db.migrate(conn) == ["006_movement_owner.sql"]
+    assert db.migrate(conn)[0] == "006_movement_owner.sql"
     owners = dict(conn.execute("SELECT batch_id, owner_id FROM movements").fetchall())
     assert owners == {"b1": 1, "b2": 1, "b3": 1, "b4": 2, "b5": None}

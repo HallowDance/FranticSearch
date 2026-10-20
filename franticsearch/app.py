@@ -73,6 +73,9 @@ def create_app(config: dict | None = None) -> Flask:
     def _auth():
         """The single auth hook: who is logged in, login required, CSRF on every POST."""
         g.user = users.get(g.db, session.get("uid"))
+        if g.user is not None and g.user["disabled"]:   # disabled since logging in
+            session.clear()
+            g.user = None
         if request.method == "POST" and app.config["CSRF"]:
             sent = request.form.get("csrf", "")
             if not sent or not secrets.compare_digest(sent, session.get("csrf", "")):
@@ -1011,7 +1014,7 @@ def _register_routes(app: Flask) -> None:
     @app.get("/s/<token>")
     def shared_link(token: str):
         loc = locations.by_token(g.db, token)
-        if loc is None or loc["archived"]:
+        if loc is None or loc["archived"] or loc["owner_disabled"]:
             abort(404)
         return _render_shared(loc, anonymous=g.user is None)
 
@@ -1070,26 +1073,59 @@ def _register_routes(app: Flask) -> None:
             return redirect(url_for("account"))
         return render_template("account.html")
 
+    def _users_page(generated: tuple[str, str] | None = None):
+        """The Users page. ``generated`` = (username, password) to show once: it's
+        rendered straight into this response, never kept in the (cookie) session."""
+        return render_template("admin_users.html", users=users.list_all(g.db), generated=generated)
+
     @app.route("/admin/users", methods=["GET", "POST"])
     def admin_users():
         _admin_only()
         if request.method == "POST":
             f = request.form
+            username = f.get("username", "").strip()
+            password = f.get("password", "") or users.generate_password()
             try:
-                users.create(g.db, f.get("username", ""), f.get("password", ""),
-                             is_admin=f.get("is_admin") == "1")
-                flash(f"User {f.get('username', '').strip()} created.", "ok")
+                users.create(g.db, username, password, is_admin=f.get("is_admin") == "1")
             except LedgerError as e:
                 flash(str(e), "error")
+                return redirect(url_for("admin_users"))
+            if not f.get("password"):
+                return _users_page((username, password))
+            flash(f"User {username} created.", "ok")
             return redirect(url_for("admin_users"))
-        return render_template("admin_users.html", users=users.list_all(g.db))
+        return _users_page()
+
+    def _admin_target(user_id: int) -> sqlite3.Row:
+        _admin_only()
+        user = users.get(g.db, user_id)
+        if user is None:
+            abort(404)
+        return user
 
     @app.post("/admin/users/<int:user_id>/password")
     def admin_set_password(user_id: int):
-        _admin_only()
+        user = _admin_target(user_id)
+        password = request.form.get("password", "") or users.generate_password()
         try:
-            users.set_password(g.db, user_id, request.form.get("password", ""))
-            flash("Password set.", "ok")
+            users.set_password(g.db, user_id, password)
+        except LedgerError as e:
+            flash(str(e), "error")
+            return redirect(url_for("admin_users"))
+        if not request.form.get("password"):
+            return _users_page((user["username"], password))
+        flash(f"Password set for {user['username']}.", "ok")
+        return redirect(url_for("admin_users"))
+
+    @app.post("/admin/users/<int:user_id>/disabled")
+    def admin_set_disabled(user_id: int):
+        user = _admin_target(user_id)
+        disable = request.form.get("disabled") == "1"
+        try:
+            if disable and user_id == _uid():
+                raise LedgerError("you can't disable your own account")
+            users.set_disabled(g.db, user_id, disable)
+            flash(f"{user['username']} {'disabled: they can no longer log in, and what they shared is hidden' if disable else 'enabled again'}.", "ok")
         except LedgerError as e:
             flash(str(e), "error")
         return redirect(url_for("admin_users"))
