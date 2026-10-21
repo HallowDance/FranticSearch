@@ -1,5 +1,5 @@
 [Unit]
-Description=FranticSearch app server (127.0.0.1:6602)
+Description=FranticSearch app server (gunicorn, 127.0.0.1:6602)
 After=network-online.target
 
 [Service]
@@ -7,7 +7,7 @@ Type=simple
 WorkingDirectory=%h/hobbies/dev/python/FranticSearch
 Environment=FS_PROXY=1
 Environment=PYTHONUNBUFFERED=1
-ExecStart=%h/hobbies/dev/python/FranticSearch/.venv/bin/python -m franticsearch serve
+ExecStart=%h/hobbies/dev/python/FranticSearch/.venv/bin/gunicorn -c deploy/gunicorn.conf.py franticsearch.wsgi:app
 Restart=always
 RestartSec=5
 
