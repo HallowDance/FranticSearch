@@ -59,7 +59,16 @@
 {% endif %}
 {%- endmacro %}
 
+{% if slots %}
+{% call m.stock_filter(f, facets, shown|sum(attribute='qty_wanted'), slots|sum(attribute='qty_wanted'), unit='cards', qty=False) %}
+<label>Board <select name="board"><option value="">(any)</option>
+{% for b in BOARDS if slots|selectattr('board', 'equalto', b)|list %}<option value="{{ b }}" {{ 'selected' if f.board == b }}>{{ BOARD_NAMES[b] }}</option>{% endfor %}</select></label>
+{% if not readonly %}<label>Status <select name="status"><option value="">(any)</option>
+{% for k, label in DECK_STATUSES.items() %}<option value="{{ k }}" {{ 'selected' if f.status == k }}>{{ label }}</option>{% endfor %}</select></label>{% endif %}
+{% endcall %}
+{% endif %}
 {{ m.view_switch() }}
+{% if slots and not shown %}<p class="muted">No cards match the filter.</p>{% endif %}
 {{ board('commander') }}
 {% if groups %}
 {% set main_total = groups|map(attribute=1)|map('sum', attribute='qty_wanted')|sum %}
@@ -80,6 +89,7 @@
 {% if not slots %}<p class="muted">No cards.</p>{% endif %}
 {% if slots %}
 <h2>Stats</h2>
+{% if f.active() %}<p class="muted">For the whole deck, not just the filtered cards.</p>{% endif %}
 {% set peak = curve|map(attribute=1)|max %}
 {% if peak %}
 <table class="grid curve">

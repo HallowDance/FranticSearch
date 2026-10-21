@@ -122,6 +122,7 @@ def create_app(config: dict | None = None) -> Flask:
             "COLOR_MODES": queries.COLOR_MODES,
             "COLOR_FIELDS": queries.COLOR_FIELDS,
             "MV_OPS": queries.MV_OPS,
+            "DECK_STATUSES": queries.DECK_STATUSES,
         }
 
     @app.template_filter("fromjson")
@@ -266,22 +267,28 @@ def _my_unresolved(uid: int) -> tuple[sqlite3.Row, sqlite3.Row]:
     return u, _my_import(u["import_id"])
 
 
-def _deck_context(deck: sqlite3.Row) -> dict:
-    """Slots grouped and sorted for the deck page (owner and shared views)."""
+def _deck_context(deck: sqlite3.Row, readonly: bool = False) -> dict:
+    """Slots filtered, grouped and sorted for the deck page (owner and shared views).
+    Filters only narrow the card list: ``st`` and the curve cover the whole deck."""
     sort = request.args.get("sort", "name")
     keys = {"name": lambda s: s["name"].lower(), "cost": lambda s: (s["cmc"] or 0, s["name"].lower()),
             "qty": lambda s: (s["qty_wanted"], s["name"].lower())}
     key = keys.get(sort.lstrip("-"), keys["name"])
     st = deckplan.state(g.db, deck, counts=True)
     slots = st["slots"]
-    boards = {b: [s for s in slots if s["board"] == b] for b in decks.BOARDS}
+    f = queries.DeckFilter.from_args(request.args)
+    if readonly:
+        f.status = ""   # what's physically in someone's deck isn't part of the shared view
+    shown = [s for s in slots if f.matches(s)]
+    boards = {b: [s for s in shown if s["board"] == b] for b in decks.BOARDS}
     return dict(
-        deck=deck, slots=slots, sort=sort, st=st,
+        deck=deck, slots=slots, sort=sort, st=st, f=f, shown=shown,
+        facets=queries.stock_facets(slots),
         groups=[(g_, rows[::-1] if sort.startswith("-") else rows)
                 for g_, rows in decks.grouped(boards["main"], key)],
         others={b: sorted(boards[b], key=key, reverse=sort.startswith("-"))
                 for b in ("commander", "side", "maybe")},
-        curve=decks.mana_curve(boards["main"] + boards["commander"]),
+        curve=decks.mana_curve([s for s in slots if s["board"] in ("main", "commander")]),
     )
 
 
@@ -354,18 +361,11 @@ def _register_routes(app: Flask) -> None:
     @app.get("/collection")
     def collection():
         conn = g.db
-        f = queries.CollectionFilter(
-            q=request.args.get("q", "").strip(),
-            location_id=_int_arg("location"),
-            location_type=request.args.get("ltype", ""),
-            not_in_deck=request.args.get("notindeck") == "1",
-            set_code=request.args.get("set", "").strip(),
-            page=_int_arg("page", 1) or 1,
-            sort=request.args.get("sort", "name"),
-        )
-        rows, total = queries.collection(conn, f, _uid())
+        f = queries.CollectionFilter.from_args(request.args)
+        rows, total, lines = queries.collection(conn, f, _uid())
         return render_template(
-            "collection.html", rows=rows, total=total, f=f,
+            "collection.html", rows=rows, total=total, f=f, facets=queries.stock_facets(lines),
+            all_cards=len({r["card_key"] for r in lines}),
             locs=locations.list_all(conn, _uid()), page_size=queries.PAGE_SIZE,
         )
 
@@ -1013,7 +1013,7 @@ def _register_routes(app: Flask) -> None:
         owner = users.get(conn, loc["owner_id"])
         deck = decks.by_location(conn, loc["id"])
         if deck:
-            return render_template("deck.html", **_deck_context(deck), loc=loc, readonly=True,
+            return render_template("deck.html", **_deck_context(deck, readonly=True), loc=loc, readonly=True,
                                    owner=owner, anonymous=anonymous)
         return render_template(
             "shared.html", loc=loc, owner=owner, anonymous=anonymous, **_filtered_stock(loc["id"]),

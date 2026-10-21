@@ -112,6 +112,9 @@ Decided (2026-10-18, UI improvements, pulled forward from phase 6):
 - **Nav search** box on every page: jumps to the card on an exact (full or front-face) name match, preferring real cards over art-series cards; else shows the result list.
 - **Sortable columns** via `?sort=key` / `-key` on the collection, location and deck tables (whitelisted server-side).
 - **Deck page**: main deck grouped by type (first match of Creature, Planeswalker, Battle, Land, Instant, Sorcery, Artifact, Enchantment on the front face), shown Creatures → … → Lands; text mana curve over non-land main + commander cards.
+- **Collection and deck filters** (decided 2026-10-21): the same filter form as locations (`macros.stock_filter`, `queries.StockFilter`), in Python.
+  - **Collection**: the location fields plus location, location kind and "not in any deck". A card shows if any of its copies match. Qty ≥ counts its matching copies together. Grouping, sorting and paging happen in Python over the user's stock lines (8k lines: ~120 ms). The Name box is "name contains", as on locations.
+  - **Decks**: the location fields (no Qty) plus board and status (short / with proxies / complete). Stats, curve and warnings describe the whole deck. Shared deck views get the filters without Status (it would reveal what's physically in the deck).
 - **Location filters** (2026-10-18): on a location's page and its shared view.
   - Fields: name contains; type (card types + supertypes like Legendary); subtype; colour (W/U/B/R/G, colourless, multicolour); mana value (0–6, 7+); set; finish; qty ≥ N.
   - Dropdowns list only what occurs in that location. All faces of multi-face cards count.

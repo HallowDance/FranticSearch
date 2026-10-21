@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
+
 SUPERTYPES = ("Basic", "Legendary", "Snow", "World", "Ongoing", "Elite", "Host")
 CARD_TYPES = (
     "Artifact", "Battle", "Creature", "Enchantment", "Instant", "Kindred", "Land",
@@ -16,7 +18,9 @@ CARD_TYPES = (
 _MULTIWORD = ("Time Lord",)
 
 
-def parse(type_line: str | None) -> tuple[set[str], set[str], set[str]]:
+# Cached: filtering a collection parses the same few thousand type lines on every page view.
+@lru_cache(maxsize=8192)
+def parse(type_line: str | None) -> tuple[frozenset[str], frozenset[str], frozenset[str]]:
     supers: set[str] = set()
     types: set[str] = set()
     subs: set[str] = set()
@@ -33,4 +37,4 @@ def parse(type_line: str | None) -> tuple[set[str], set[str], set[str]]:
                 subs.add(multi)
                 right = right.replace(multi, " ")
         subs.update(right.split())
-    return supers, types, subs
+    return frozenset(supers), frozenset(types), frozenset(subs)

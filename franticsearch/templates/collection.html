@@ -1,21 +1,16 @@
 {% extends "base.html" %}{% import "macros.html" as m with context %}{% block title %}Collection{% endblock %}
 {% block body %}
 <h1>Collection</h1>
-<form method="get" action="{{ url_for('collection') }}">
-<fieldset><legend>Filter</legend>
-Name <input name="q" value="{{ f.q }}" size="24">
-Location <select name="location"><option value="">(any)</option>
+{% call m.stock_filter(f, facets, total, all_cards, unit='cards') %}
+<label>Location <select name="location"><option value="">(any)</option>
 {% for l in locs %}<option value="{{ l.id }}" {{ 'selected' if f.location_id == l.id }}>{{ m.place(l.name, l.type) }}</option>{% endfor %}
-</select>
-Type <select name="ltype"><option value="">(any)</option>
+</select></label>
+<label>Kind <select name="ltype"><option value="">(any)</option>
 {% for t in ['binder', 'box', 'deck', 'lent', 'other'] %}<option {{ 'selected' if f.location_type == t }}>{{ t }}</option>{% endfor %}
-</select>
-Set <input name="set" value="{{ f.set_code }}" size="5" placeholder="e.g. c21">
+</select></label>
 <label><input type="checkbox" name="notindeck" value="1" {{ 'checked' if f.not_in_deck }}> not in any deck</label>
-<button>Filter</button> <a href="{{ url_for('collection') }}">reset</a>
-</fieldset>
-</form>
-<p class="muted">{{ total }} card{{ '' if total == 1 else 's' }} match.</p>
+{% endcall %}
+{% if not f.active() or f.min_qty > 1 %}<p class="muted">{% if not f.active() %}{{ all_cards }} card{{ '' if all_cards == 1 else 's' }}.{% endif %}{% if f.min_qty > 1 %} Qty &ge; counts a card's matching copies together.{% endif %}</p>{% endif %}
 {% if rows %}
 {{ m.view_switch() }}
 {% if view == 'images' %}
@@ -30,7 +25,7 @@ Set <input name="set" value="{{ f.set_code }}" size="5" placeholder="e.g. c21">
 <td>{{ r.type_line or '' }}</td>
 <td class="num">{{ r.qty }}</td>
 <td class="num">{{ r.printings }}</td>
-<td>{{ r.locations.split(',')|join(', ') }}</td>
+<td>{{ r.locations|join(', ') }}</td>
 </tr>
 {% endfor %}
 </table>
@@ -39,7 +34,7 @@ Set <input name="set" value="{{ f.set_code }}" size="5" placeholder="e.g. c21">
 {% if pages > 1 %}
 <div class="pager">Page:
 {% for p in range(1, pages + 1) %}
-{% if p == f.page %}<b>[{{ p }}]</b>{% else %}<a href="{{ url_for('collection', q=f.q, location=f.location_id or '', ltype=f.location_type, set=f.set_code, notindeck='1' if f.not_in_deck else '', sort=f.sort, page=p) }}">{{ p }}</a>{% endif %}
+{% if p == f.page %}<b>[{{ p }}]</b>{% else %}<a href="{{ url_for('collection', **dict(request.args.to_dict(), page=p)) }}">{{ p }}</a>{% endif %}
 {% endfor %}
 </div>
 {% endif %}

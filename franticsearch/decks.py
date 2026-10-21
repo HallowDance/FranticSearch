@@ -262,7 +262,7 @@ def slots(conn: sqlite3.Connection, deck_id: int, *, counts: bool = True) -> lis
     list, buy list and Decks page compute state for every deck and don't need them.
     """
     return conn.execute(
-        f"""SELECT ds.*, p.name, p.set_code, p.collector_number, p.type_line, p.mana_cost, p.cmc,
+        f"""SELECT ds.*, p.name, p.set_code, p.set_name, p.collector_number, p.type_line, p.mana_cost, p.cmc,
                   p.image_normal AS image, p.oracle_id, p.colors, p.color_identity,
                   p.legalities, p.oracle_text,
                   COALESCE(p.oracle_id, p.scryfall_id) AS card_key
