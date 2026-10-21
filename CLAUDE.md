@@ -17,7 +17,7 @@ FranticSearch: self-hosted MTG collection & deck manager where **every physical 
 
 ```sh
 python3 -m venv .venv && . .venv/bin/activate && pip install -e ".[dev,serve]"
-pytest                                   # full suite, ~12 s, no network (134 tests)
+pytest                                   # full suite, ~12 s, no network (140 tests)
 python -m franticsearch serve            # dev server http://127.0.0.1:6602 (auto-syncs Scryfall); live uses gunicorn
 python -m franticsearch serve --no-auto-sync
 python -m franticsearch migrate          # apply pending migrations (serve also does this)
@@ -46,8 +46,8 @@ Env: `FS_DB` (default `data/franticsearch.db`), `FS_AUTO_SYNC` (default `1`), `F
 | `decks.py` | Deck + its same-named deck location (`update` renames both), `add_slot`, `edit_slot` (qty / proxy / board / printing / finish; merges, qty 0 removes), `retarget`, slot ids `printing\|finish\|cond\|lang\|board`, `slots(counts=True)` (in-deck / free / where / any-printing-outside-this-deck subqueries, scoped to the deck owner; `counts=False` skips them), `grouped()` by card type, `mana_curve()`, delete (only if the deck location has no history). `BOARDS`, `FORMATS`, `COMMANDER_FORMATS`. |
 | `deckplan.py` | Phases 4–5, computed never stored: `buy_list()`, `proxy_short()`, `state(counts=False)` (per-slot in_deck / short, excess lines; the deck page passes `counts=True`), `pull_plan()` / `confirm_pulls()` (one deck or all; free copies planned once), `return_plan()` / `confirm_returns()` (default = last pull source, else Unsorted), `mark_built()` (acquire what's short as new copies into the deck location; not pulls), `analysis()` (colours, legality, copy limits, size, commander identity). Confirm functions recompute the plan, so stale forms can't over-move. |
 | `importer.py` | Moxfield deck text / collection CSV: parse → `resolve()` (set+cn → name+set → `default_key()` = owner's free copy, else newest released regular paper printing) → import (per-owner sha256 dedupe). Unresolved queue fix/dismiss. `paste_into()` (location) and `paste_into_deck()` (slots) for quick list entry. |
-| `cardtypes.py` | Type line → (supertypes, card types, subtypes) over all faces |
-| `queries.py` | Read-only queries. Collection / location / history / totals per owner; `shared_stock`; `StockFilter` (location filters, in Python); `CardSearch` + `search()` (phase 3, SQL); whitelisted `order_by()` for `?sort=` |
+| `cardtypes.py` | Type line → (supertypes, card types, subtypes) over all faces; cached, returns frozensets |
+| `queries.py` | Read-only queries. Collection / location / history / totals per owner; `shared_stock`; `StockFilter` (location filters, in Python) with subclasses `CollectionFilter` (+ location / kind / not in deck; `collection()` groups, sorts and pages in Python) and `DeckFilter` (+ board / status); `CardSearch` + `search()` (phase 3, SQL); whitelisted `order_by()` for `?sort=` |
 | `exports.py` | Card lists as text: `text`, `moxfield` (deck exports with board headers the importer reads back), `tcgplayer`, `csv`. Used by the buy list, deck export, proxy list. |
 | `backup.py` | `backup()` (SQLite backup API → gzip, prune to N), `list_backups()`, `restore()` (port check, integrity check, saves current DB, migrate + ledger check). Nightly via `deploy/systemd/franticsearch-backup.timer`. |
 | `logs.py` | `configure()`: one stderr handler for server + CLI (called by `__main__` and `wsgi`, not `create_app`); no timestamps under journald. Logged: logins (failed = WARNING, with IP), admin user actions, migrations applied, sync start/result/failure, 500 tracebacks |
@@ -107,7 +107,7 @@ Keep domain logic framework-free (unit-testable) and the Flask layer thin.
   - #17 docs · #18 code review + expansion guide (`docs/SCALING.md`; hosting model: self-hosted per friend group, never open sign-up)
   - #19 security fixes (open redirect via `next`, import double-submit, secret-key race) · #20 performance (pull plan, lean deck state, migration 006 `movements.owner_id`, sync change guard, `PRAGMA optimize`)
   - #21 admin Users page (generated passwords, disable/enable; migration 007) · #22 deck where-columns only while short, owned-elsewhere fix · #23 deck Status column · #24 share-link hover images · #25 logging · #26 gunicorn for the live instance
-- 134 tests pass.
+- 140 tests pass.
 - Verified on real data: Scryfall sync (118,893 printings); Moxfield deck text, both exports (100/100); Moxfield collection CSV (337 rows, 0 unresolved, in "Rares Binder"); phase 4–6 pages via read-only GETs; mark as built (old pull version, then the new acquire version: Millicent 100 short → complete) and restore on copies of the live DB; phone layout via headless Chromium at 390 px.
 - **Unverified**: `docker compose up --build` itself (no container runtime on the dev machine).
 - **Next**: nothing in progress. Candidates: `docs/SCALING.md` § Prioritised backlog (Stage 1: off-machine backups first, timers, Secure cookie; Stage 3: FOSS packaging, licence) and PLAN.md § What's next (Scryfall query syntax, trades, prices). **CI/CD waits for the first proper release.** Ask the user which.

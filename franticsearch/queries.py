@@ -13,13 +13,6 @@ from .decks import FORMATS
 PAGE_SIZE = 100
 
 # Sortable columns: key -> (primary ORDER BY term, tie-breaker). "-key" sorts descending.
-COLLECTION_SORTS = {
-    "name": ("name COLLATE NOCASE", "card_key"),
-    "cost": ("MIN(p.cmc)", "name COLLATE NOCASE"),
-    "type": ("MIN(p.type_line) COLLATE NOCASE", "name COLLATE NOCASE"),
-    "qty": ("SUM(s.qty)", "name COLLATE NOCASE"),
-    "printings": ("COUNT(DISTINCT p.scryfall_id)", "name COLLATE NOCASE"),
-}
 LOCATION_SORTS = {
     "name": ("p.name COLLATE NOCASE", "p.set_code, p.collector_number"),
     "set": ("p.set_code", "p.collector_number, p.name COLLATE NOCASE"),
@@ -43,69 +36,6 @@ def fts_query(text: str) -> str | None:
     if not words:
         return None
     return " ".join(f'name:"{w}"*' for w in words)
-
-
-@dataclass
-class CollectionFilter:
-    q: str = ""
-    location_id: int | None = None
-    location_type: str = ""
-    not_in_deck: bool = False
-    set_code: str = ""
-    page: int = 1
-    sort: str = "name"
-
-    def where(self, owner: int) -> tuple[str, list]:
-        clauses, args = ["l.owner_id = ?"], [owner]
-        if self.q:
-            fq = fts_query(self.q)
-            if fq:
-                clauses.append(
-                    "p.rowid IN (SELECT rowid FROM printings_fts WHERE printings_fts MATCH ?)"
-                )
-                args.append(fq)
-        if self.location_id:
-            clauses.append("s.location_id = ?")
-            args.append(self.location_id)
-        if self.location_type:
-            clauses.append("l.type = ?")
-            args.append(self.location_type)
-        if self.not_in_deck:
-            clauses.append("l.type <> 'deck'")
-        if self.set_code:
-            clauses.append("p.set_code = ?")
-            args.append(self.set_code.lower())
-        return (" AND ".join(clauses) or "1"), args
-
-
-def collection(
-    conn: sqlite3.Connection, f: CollectionFilter, owner: int
-) -> tuple[list[sqlite3.Row], int]:
-    """A user's cards grouped by card (oracle id), with totals. Returns (rows, total_cards)."""
-    where, args = f.where(owner)
-    base = f"""
-        FROM stock s
-        JOIN printings p ON p.scryfall_id = s.printing_id
-        JOIN locations l ON l.id = s.location_id
-       WHERE {where}
-    """
-    total = conn.execute(
-        f"SELECT COUNT(DISTINCT COALESCE(p.oracle_id, p.scryfall_id)) {base}", args
-    ).fetchone()[0]
-    rows = conn.execute(
-        f"""SELECT COALESCE(p.oracle_id, p.scryfall_id) AS card_key,
-                   MIN(p.name) AS name, MIN(p.type_line) AS type_line,
-                   MIN(p.mana_cost) AS mana_cost, MIN(p.image_normal) AS image, MIN(p.cmc) AS cmc,
-                   SUM(s.qty) AS qty,
-                   COUNT(DISTINCT p.scryfall_id) AS printings,
-                   GROUP_CONCAT(DISTINCT CASE WHEN l.type = 'deck' THEN 'Decks / ' || l.name ELSE l.name END) AS locations
-            {base}
-            GROUP BY card_key
-            ORDER BY {order_by(COLLECTION_SORTS, f.sort)}
-            LIMIT ? OFFSET ?""",
-        [*args, PAGE_SIZE, (max(f.page, 1) - 1) * PAGE_SIZE],
-    ).fetchall()
-    return rows, total
 
 
 def totals(conn: sqlite3.Connection, owner: int | None) -> sqlite3.Row:
@@ -200,7 +130,9 @@ class StockFilter:
 
     @classmethod
     def from_args(cls, args) -> "StockFilter":
-        f = cls(**{fl.name: (args.get(fl.name) or "").strip() for fl in fields(cls) if fl.name != "min_qty"})
+        """From request args: the text fields by name, plus ``min_qty``. Subclasses read
+        their other fields themselves."""
+        f = cls(**{fl.name: (args.get(fl.name) or "").strip() for fl in fields(cls) if fl.type == "str"})
         try:
             f.min_qty = max(0, int(args.get("min_qty") or 0))
         except ValueError:
@@ -212,6 +144,10 @@ class StockFilter:
                     self.min_qty > 1))
 
     def matches(self, row) -> bool:
+        return self.matches_card(row) and row["qty"] >= self.min_qty
+
+    def matches_card(self, row) -> bool:
+        """Everything but the quantity: name, types, colour, MV, set, finish."""
         if self.q and self.q.lower() not in row["name"].lower():
             return False
         if self.type or self.subtype:
@@ -234,7 +170,7 @@ class StockFilter:
             return False
         if self.finish and row["finish"] != self.finish:
             return False
-        return row["qty"] >= self.min_qty
+        return True
 
 
 def stock_facets(rows) -> dict:
@@ -251,6 +187,129 @@ def stock_facets(rows) -> dict:
         "types": sorted(types), "supertypes": sorted(supers), "subtypes": sorted(subs),
         "sets": sorted(sets.items(), key=lambda kv: kv[1].lower()), "finishes": sorted(finishes),
     }
+
+
+@dataclass
+class CollectionFilter(StockFilter):
+    """The collection page: the location filters, per copy, plus where the copies are.
+    A card is listed if any of its copies match; ``min_qty`` applies to its matching
+    copies in total. Param names: ``location``, ``ltype``, ``notindeck``, ``page``, ``sort``."""
+    location_id: int | None = None
+    location_type: str = ""
+    not_in_deck: bool = False
+    page: int = 1
+    sort: str = "name"
+
+    @classmethod
+    def from_args(cls, args) -> "CollectionFilter":
+        f = super().from_args(args)
+        f.location_type = (args.get("ltype") or "").strip()
+        f.not_in_deck = args.get("notindeck") == "1"
+        f.sort = args.get("sort") or "name"
+        for name, attr, minimum in (("location", "location_id", None), ("page", "page", 1)):
+            try:
+                value = int(args.get(name) or "")
+            except ValueError:
+                continue
+            setattr(f, attr, value if minimum is None else max(minimum, value))
+        return f
+
+    def active(self) -> bool:
+        return super().active() or bool(self.location_id or self.location_type or self.not_in_deck)
+
+    def matches(self, row) -> bool:   # one copy (stock line); min_qty is per card, see collection()
+        if self.location_id and row["location_id"] != self.location_id:
+            return False
+        if self.location_type and row["location_type"] != self.location_type:
+            return False
+        if self.not_in_deck and row["location_type"] == "deck":
+            return False
+        return self.matches_card(row)
+
+
+COLLECTION_KEYS = {   # sort key -> (primary, tie-breaker) over grouped cards
+    "name": (lambda c: c["name"].lower(), lambda c: c["card_key"]),
+    "cost": (lambda c: -1 if c["cmc"] is None else c["cmc"], lambda c: c["name"].lower()),
+    "type": (lambda c: (c["type_line"] or "").lower(), lambda c: c["name"].lower()),
+    "qty": (lambda c: c["qty"], lambda c: c["name"].lower()),
+    "printings": (lambda c: c["printings"], lambda c: c["name"].lower()),
+}
+
+
+def collection_lines(conn: sqlite3.Connection, owner: int) -> list[sqlite3.Row]:
+    """All of a user's stock lines with card and location fields, newest printings first."""
+    return conn.execute(
+        """SELECT s.*, p.name, p.set_code, p.set_name, p.collector_number, p.type_line, p.mana_cost,
+                  p.cmc, p.colors, p.image_normal AS image, COALESCE(p.oracle_id, p.scryfall_id) AS card_key,
+                  l.name AS location_name, l.type AS location_type
+             FROM stock s JOIN printings p ON p.scryfall_id = s.printing_id
+             JOIN locations l ON l.id = s.location_id
+            WHERE l.owner_id = ?
+            ORDER BY p.released_at DESC""",
+        (owner,),
+    ).fetchall()
+
+
+def collection(
+    conn: sqlite3.Connection, f: CollectionFilter, owner: int
+) -> tuple[list[dict], int, list[sqlite3.Row]]:
+    """A user's cards grouped by card (oracle id), filtered and sorted, one page.
+
+    Filtering happens in Python, like a location's (a collection is thousands of lines,
+    not millions), so types and subtypes match exactly and the filter dropdowns can list
+    what occurs. Returns (page of cards, matching cards, all lines for the facets)."""
+    lines = collection_lines(conn, owner)
+    cards: dict[str, dict] = {}
+    for r in lines:
+        if not f.matches(r):
+            continue
+        c = cards.get(r["card_key"])
+        if c is None:   # card fields are the same for every printing; the image is the newest one
+            c = cards[r["card_key"]] = {"card_key": r["card_key"], "name": r["name"], "type_line": r["type_line"],
+                                        "mana_cost": r["mana_cost"], "cmc": r["cmc"], "image": r["image"],
+                                        "qty": 0, "_printings": set(), "_where": set()}
+        c["qty"] += r["qty"]
+        c["_printings"].add(r["printing_id"])
+        c["_where"].add(("Decks / " if r["location_type"] == "deck" else "") + r["location_name"])
+    rows = []
+    for c in cards.values():
+        if c["qty"] < max(f.min_qty, 1):
+            continue
+        c["printings"] = len(c.pop("_printings"))
+        c["locations"] = sorted(c.pop("_where"), key=str.lower)
+        rows.append(c)
+    key = f.sort.lstrip("-") if f.sort.lstrip("-") in COLLECTION_KEYS else "name"
+    primary, tie = COLLECTION_KEYS[key]
+    rows.sort(key=tie)
+    rows.sort(key=primary, reverse=f.sort.startswith("-") and key == f.sort.lstrip("-"))
+    start = (max(f.page, 1) - 1) * PAGE_SIZE
+    return rows[start:start + PAGE_SIZE], len(rows), lines
+
+
+DECK_STATUSES = {"short": "short", "proxied": "with proxies", "complete": "complete"}
+
+
+@dataclass
+class DeckFilter(StockFilter):
+    """A deck's card list: the location filters (no qty) plus board and status. Stats
+    and warnings on the deck page still describe the whole deck."""
+    board: str = ""
+    status: str = ""   # DECK_STATUSES; owner views only (it reveals what's in the deck)
+
+    def active(self) -> bool:
+        return super().active() or bool(self.board or self.status)
+
+    def matches(self, slot) -> bool:
+        if self.board and slot["board"] != self.board:
+            return False
+        counts = slot["board"] != "maybe"
+        if self.status == "short" and not slot["short"]:
+            return False
+        if self.status == "proxied" and not slot["qty_proxy"]:
+            return False
+        if self.status == "complete" and (not counts or slot["short"]):
+            return False
+        return self.matches_card(slot)
 
 
 # --------------------------------------------------------------------------- card search (phase 3)
