@@ -50,7 +50,9 @@ def create_app(config: dict | None = None) -> Flask:
         app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
     conn = db.connect(app.config["DATABASE"])
-    db.migrate(conn)
+    applied = db.migrate(conn)
+    if applied:
+        log.info("applied migrations: %s", ", ".join(applied))
     db.optimize(conn)
     secret = os.environ.get("FS_SECRET_KEY") or db.get_meta(conn, "secret_key")
     if not secret:
@@ -296,17 +298,29 @@ def _admin_only() -> None:
         abort(403)
 
 
-def _run_sync_in_background(db_path: str, force: bool) -> None:
-    def work() -> None:
+def _sync_once(db_path: str, force: bool = False, only_if_due: bool = False) -> None:
+    """One Scryfall sync from a background thread. Never raises: a failed sync is
+    logged and recorded in ``meta`` by ``scryfall.sync``; anything else is logged here."""
+    try:
         conn = db.connect(db_path)
-        try:
-            scryfall.sync(conn, force=force)
-        except Exception:
-            pass  # recorded in meta by scryfall.sync
-        finally:
-            conn.close()
+    except Exception:
+        log.exception("Scryfall sync: can't open the database")
+        return
+    try:
+        if only_if_due and not scryfall.needs_sync(conn):
+            return
+        log.info("Scryfall sync started%s", " (forced)" if force else "")
+        log.info("Scryfall sync: %s", scryfall.sync(conn, force=force))
+    except scryfall.SyncFailed:
+        pass  # already logged with its traceback by scryfall.sync
+    except Exception:
+        log.exception("Scryfall sync check failed")
+    finally:
+        conn.close()
 
-    threading.Thread(target=work, name="scryfall-sync", daemon=True).start()
+
+def _run_sync_in_background(db_path: str, force: bool) -> None:
+    threading.Thread(target=_sync_once, args=(db_path, force), name="scryfall-sync", daemon=True).start()
 
 
 def _start_auto_sync(db_path: str) -> None:
@@ -314,14 +328,7 @@ def _start_auto_sync(db_path: str) -> None:
 
     def loop() -> None:
         while True:
-            conn = db.connect(db_path)
-            try:
-                if scryfall.needs_sync(conn):
-                    scryfall.sync(conn)
-            except Exception:
-                pass  # recorded in meta; retried next hour
-            finally:
-                conn.close()
+            _sync_once(db_path, only_if_due=True)
             time.sleep(3600)
 
     threading.Thread(target=loop, name="scryfall-auto-sync", daemon=True).start()
@@ -1048,7 +1055,10 @@ def _register_routes(app: Flask) -> None:
             if user:
                 session.clear()  # new session id contents: no fixation, fresh CSRF token
                 session["uid"] = user["id"]
+                log.info("login: %s from %s", user["username"], request.remote_addr)
                 return redirect(nxt)
+            log.warning("failed login for %r from %s", request.form.get("username", "")[:40],
+                        request.remote_addr)
             flash("Wrong username or password.", "error")
         return render_template("login.html", next=nxt, no_users=users.count(conn) == 0)
 
@@ -1091,6 +1101,8 @@ def _register_routes(app: Flask) -> None:
             except LedgerError as e:
                 flash(str(e), "error")
                 return redirect(url_for("admin_users"))
+            log.info("admin %s created user %s%s", g.user["username"], username,
+                     " (admin)" if f.get("is_admin") == "1" else "")
             if not f.get("password"):
                 return _users_page((username, password))
             flash(f"User {username} created.", "ok")
@@ -1113,6 +1125,7 @@ def _register_routes(app: Flask) -> None:
         except LedgerError as e:
             flash(str(e), "error")
             return redirect(url_for("admin_users"))
+        log.info("admin %s set the password of %s", g.user["username"], user["username"])
         if not request.form.get("password"):
             return _users_page((user["username"], password))
         flash(f"Password set for {user['username']}.", "ok")
@@ -1126,6 +1139,8 @@ def _register_routes(app: Flask) -> None:
             if disable and user_id == _uid():
                 raise LedgerError("you can't disable your own account")
             users.set_disabled(g.db, user_id, disable)
+            log.info("admin %s %s user %s", g.user["username"], "disabled" if disable else "enabled",
+                     user["username"])
             flash(f"{user['username']} {'disabled: they can no longer log in, and what they shared is hidden' if disable else 'enabled again'}.", "ok")
         except LedgerError as e:
             flash(str(e), "error")

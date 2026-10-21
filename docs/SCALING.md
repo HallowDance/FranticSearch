@@ -4,6 +4,8 @@ Review of `main` at `0adf43c` (2026-10-20), focused on scalability and best prac
 
 ## Summary
 
+> **Status (2026-10-21):** S1, S2, S4 fixed in PR #19; P1–P3, P6, P8 in PR #20; O3 in PR #25. The backlog table at the end has a Status column. Measurements below are from before those fixes.
+
 - **The core design is sound and scales further than the deployment does.** The ledger with its invariant check, the re-entrant transactions, the migration runner and the per-route ownership checks are the right foundations, and none of them needs to change to grow.
 - **Deployment model** (PLAN.md § Decisions): FOSS, self-hosted per person or friend group, never open sign-up. "Scaling" here means three things: bigger collections, a friend group of up to a few dozen accounts, and making it easy for *other* people to run their own instance. It does not mean one big shared service.
 - **The laptop + reverse SSH tunnel setup stays.** The operational gaps worth closing inside it: the Flask dev server serves the public site, and backups exist only on the laptop's disk (§ Stage 1).
@@ -43,14 +45,14 @@ Severity: **High** = fix before growing; **Medium** = fix when its trigger appea
 
 ### Security & correctness
 
-**S1 — Open redirect via `next` (High, small).** `_back()` (`app.py:192`) and `login()` (`app.py:1022`) accept any `next` that starts with `/` and not `//`. Werkzeug drops control characters when it builds the `Location` header, so `next=/%09/evil.com` becomes `Location: //evil.com` (checked: `POST /stock/acquire` with `next="/\t/evil.com"` → `302 //evil.com`). A link to `…/franticsearch/login?next=/%09/evil.com` sends the user to another site right after a real login, which is useful for phishing.
+**S1 — Open redirect via `next` (High, small).** ✅ Done in PR #19. `_back()` (`app.py:192`) and `login()` (`app.py:1022`) accept any `next` that starts with `/` and not `//`. Werkzeug drops control characters when it builds the `Location` header, so `next=/%09/evil.com` becomes `Location: //evil.com` (checked: `POST /stock/acquire` with `next="/\t/evil.com"` → `302 //evil.com`). A link to `…/franticsearch/login?next=/%09/evil.com` sends the user to another site right after a real login, which is useful for phishing.
 - Fix: one `_safe_next(value, default)` helper used by both. Reject values containing a backslash or any character ≤ `0x20`. Also require `urlsplit(value)` to have no scheme or netloc and the path to start with a single `/`. Add a test with `/\t/x`, `/\\x`, `//x`, `https://x`.
 
-**S2 — Secret key race on first boot with several workers (Low).** `create_app` (`app.py:53`) generates a key if `meta` has none and upserts it. Two gunicorn workers starting at once on an empty DB each keep their own key in memory, so sessions only validate on the worker that issued them. Fix: `INSERT OR IGNORE`, then re-read the stored value. Or require `FS_SECRET_KEY` in production.
+**S2 — Secret key race on first boot with several workers (Low).** ✅ Done in PR #19. `create_app` (`app.py:53`) generates a key if `meta` has none and upserts it. Two gunicorn workers starting at once on an empty DB each keep their own key in memory, so sessions only validate on the worker that issued them. Fix: `INSERT OR IGNORE`, then re-read the stored value. Or require `FS_SECRET_KEY` in production.
 
 **S3 — Backups contain the session secret and password hashes (Medium, before off-machine backups).** `meta.secret_key` lets anyone holding a backup forge sessions. Before backups leave the machine, either encrypt them (e.g. `age` to a public key) or set `FS_SECRET_KEY` from the environment so the DB copy holds no secret.
 
-**S4 — Double-submit of an import gives a 500 (Low).** `_check_new()` runs outside the transaction (`importer.py:345` / `:388`), and the `UNIQUE(owner_id, sha256)` violation inside it raises `sqlite3.IntegrityError`, which the routes don't catch. Fix: move the check inside the transaction and turn `IntegrityError` into `ImportFailed`.
+**S4 — Double-submit of an import gives a 500 (Low).** ✅ Done in PR #19. `_check_new()` runs outside the transaction (`importer.py:345` / `:388`), and the `UNIQUE(owner_id, sha256)` violation inside it raises `sqlite3.IntegrityError`, which the routes don't catch. Fix: move the check inside the transaction and turn `IntegrityError` into `ImportFailed`.
 
 **S5 — Production runs the Werkzeug development server (High, ops).** `serve` calls `app.run()` (`__main__.py:963`), which is not meant for exposure. It has no worker supervision, no request timeouts, and debug-oriented error handling. `gunicorn` is already in the `serve` extra and the Dockerfile uses it, and it works behind the tunnel unchanged (same `127.0.0.1:6602`). See § Stage 1.
 
@@ -64,14 +66,14 @@ Positives (keep doing these): every SQL value is parameterised; the dynamic part
 
 ### Scalability & performance
 
-**P1 — Pull plan is quadratic in the alternatives step (High once decks grow).** `deckplan.pull_plan` (`deckplan.py:179`) scans the *whole free pool* for every shortfall to find other printings of the card. With 1,155 shortfalls × 8,000 pool rows, that loop is 0.76 s of the 1.65 s. Each shortfall also runs its own `_deck_location` and "in other decks" query (2,300 queries in total).
+**P1 — Pull plan is quadratic in the alternatives step (High once decks grow).** ✅ Done in PR #20. `deckplan.pull_plan` (`deckplan.py:179`) scans the *whole free pool* for every shortfall to find other printings of the card. With 1,155 shortfalls × 8,000 pool rows, that loop is 0.76 s of the 1.65 s. Each shortfall also runs its own `_deck_location` and "in other decks" query (2,300 queries in total).
 - Fix: build `pool_by_oracle = {oracle_id: [rows]}` once, next to `by_pf`. Fetch "in other decks" for all shortfalls in one query, grouped by (printing, finish). Take the deck location from the deck row you already have.
 - `/buy` calls `pull_plan`, so it gets the same speed-up.
 
-**P2 — `deckplan.state()` pays for columns it never uses (High once there are many decks).** `state()` uses `decks.slots()`, whose four correlated subqueries per slot (`in_deck`, `free`, `free_where`, `owned_any`) cost ~30 ms per 100-slot deck. `/decks`, `/pull` and `/buy` call `state()` once per deck: 25 decks ≈ 0.75 s before doing anything else.
+**P2 — `deckplan.state()` pays for columns it never uses (High once there are many decks).** ✅ Done in PR #20. `state()` uses `decks.slots()`, whose four correlated subqueries per slot (`in_deck`, `free`, `free_where`, `owned_any`) cost ~30 ms per 100-slot deck. `/decks`, `/pull` and `/buy` call `state()` once per deck: 25 decks ≈ 0.75 s before doing anything else.
 - Fix: a lean `slots_basic()` (slots joined to printings, with no subqueries) for `state()`. Keep the rich query for the deck page and the slot editor only. If the deck page needs those counts at scale, compute them with one grouped query per owner (`GROUP BY printing_id, finish`) and join in Python.
 
-**P3 — History and the overview's movement count scan the whole ledger (High at ~1M movements).** `queries.history` filters on `COALESCE(fl.owner_id, tl.owner_id) = ?`, and `totals()` uses `EXISTS (… l.id IN (m.from_location_id, m.to_location_id))`. SQLite can't use an index for either (`EXPLAIN`: `SCAN m`). Results: 1.0 s and 0.7 s at 960k movements, and the cost grows linearly with *everyone's* history, not just yours.
+**P3 — History and the overview's movement count scan the whole ledger (High at ~1M movements).** ✅ Done in PR #20. `queries.history` filters on `COALESCE(fl.owner_id, tl.owner_id) = ?`, and `totals()` uses `EXISTS (… l.id IN (m.from_location_id, m.to_location_id))`. SQLite can't use an index for either (`EXPLAIN`: `SCAN m`). Results: 1.0 s and 0.7 s at 960k movements, and the cost grows linearly with *everyone's* history, not just yours.
 - Fix (recommended): **migration 006 adds `movements.owner_id`**, backfilled from the location, with an index on `(owner_id, id)`. Then `history` becomes `WHERE m.owner_id = ? ORDER BY m.id DESC LIMIT 100` (an index range scan), and `ledger._record` sets it. This fits the model because a movement never crosses owners (the ledger refuses that).
   - Constraint for the future: keep that true when trades arrive. Model a trade as two one-sided rows, one out of A and one into B, each with its own owner (§ Feature notes).
 - Cheaper alternative with no migration: filter on `from_location_id IN (owner's locations) OR to_location_id IN (…)`, which can use the two existing indexes through SQLite's OR-optimisation. Less robust as the location count grows.
@@ -81,7 +83,7 @@ Positives (keep doing these): every SQL value is parameterised; the dynamic part
 
 **P5 — Colour and type searches scan all printings (Low).** `CardSearch.where` uses `colors LIKE '%"G"%'` and `type_line LIKE '%word%'`, which take ~280 ms regardless of users. This is acceptable now. If it matters (e.g. with Scryfall query syntax), add integer bitmask columns `colors_mask` / `identity_mask` (W=1, U=2, …), filled at sync, and use bit tests: "include G" = `mask & 16 = 16`, "at most" = `mask & ~allowed = 0`.
 
-**P6 — The daily Scryfall sync rewrites every printing (Medium).** `_UPSERT_SQL` updates all 119k rows unconditionally. Each update fires the FTS trigger (delete + insert into `printings_fts`), so every day the WAL and FTS index churn by roughly the size of the card table (~200 MB), and writes are serialised in 60 chunks for ~25 s.
+**P6 — The daily Scryfall sync rewrites every printing (Medium).** ✅ Done in PR #20. `_UPSERT_SQL` updates all 119k rows unconditionally. Each update fires the FTS trigger (delete + insert into `printings_fts`), so every day the WAL and FTS index churn by roughly the size of the card table (~200 MB), and writes are serialised in 60 chunks for ~25 s.
 - Fix: add a change guard to the upsert, `… DO UPDATE SET … WHERE (printings.c1, printings.c2, …) IS NOT (excluded.c1, excluded.c2, …)`. Checked on SQLite 3.53: unchanged rows fire no trigger.
 - After a sync, run `PRAGMA wal_checkpoint(TRUNCATE)` and `PRAGMA optimize`. Optionally run `INSERT INTO printings_fts(printings_fts) VALUES('optimize')` weekly.
 
@@ -90,7 +92,7 @@ Positives (keep doing these): every SQL value is parameterised; the dynamic part
 2. **Split the cache into its own file** (`cards.db`, `ATTACH`ed). Cleaner long-term, but SQLite can't enforce FKs across attached databases, so `printing_id` integrity would rely on `ledger.validate_key` (which already checks). It's also a larger migration.
 - Recommendation: option 1 now (it unblocks cheap off-machine backups), and keep the full weekly backup.
 
-**P8 — No planner statistics (Low).** `sqlite_stat1` doesn't exist; `ANALYZE` has never run. Run `PRAGMA optimize` after migrations and syncs, or on connection close, so the planner keeps good choices as data skews (e.g. one user with 50k lines).
+**P8 — No planner statistics (Low).** ✅ Done in PR #20. `sqlite_stat1` doesn't exist; `ANALYZE` has never run. Run `PRAGMA optimize` after migrations and syncs, or on connection close, so the planner keeps good choices as data skews (e.g. one user with 50k lines).
 
 **P9 — Per-movement overhead in the ledger (Low).** `_record` runs ~8 statements per line: key validation, owner × 2, type × 2, archived, current qty, upsert, insert. A 10k-line import is still ~1–2 s inside one transaction, which is fine. If imports grow, look up location metadata once per batch.
 
@@ -106,7 +108,7 @@ What already scales well: stock lookups (the PK starts with `location_id`), per-
 - With a laptop that sleeps, "down" is normal, so don't page on it.
 - Do alert on what actually needs attention: a nightly `check` mismatch, a failed backup, a sync stuck in `error` for more than 2 days. A systemd `OnFailure=` unit that sends a desktop notification or an email is enough.
 
-**O3 — Logging is unconfigured and background errors vanish (Medium).** Nothing calls `logging.basicConfig`. The auto-sync loop swallows every exception from `needs_sync` (`app.py:300`), and `_run_sync_in_background` does the same (`app.py:283`). Configure logging once in `serve` / `wsgi` (to stderr, so journald or Docker collect it). Use `log.exception` in both loops. Add an access log (gunicorn's `--access-logfile -`).
+**O3 — Logging is unconfigured and background errors vanish (Medium).** ✅ Done in PR #25. Nothing calls `logging.basicConfig`. The auto-sync loop swallows every exception from `needs_sync` (`app.py:300`), and `_run_sync_in_background` does the same (`app.py:283`). Configure logging once in `serve` / `wsgi` (to stderr, so journald or Docker collect it). Use `log.exception` in both loops. Add an access log (gunicorn's `--access-logfile -`).
 
 **O4 — Background sync lives in the web process (Medium; blocks multiple workers).** `_start_auto_sync` starts a thread in every process that calls `create_app`. Under gunicorn with more than one worker that means N concurrent syncs, and `_sync_lock` is per-process. Make the sync a systemd timer (`python -m franticsearch sync`, daily), like the backup. Set `FS_AUTO_SYNC=0` on the live service and keep it on for dev. If the System page's "sync now" stays, guard it with a DB-level lock (a `meta` row with a timestamp) instead of a thread lock.
 
@@ -255,26 +257,26 @@ Infrastructure implications:
 
 ## Prioritised backlog
 
-| # | Item | Severity | Effort | Stage |
-|---|---|---|---|---|
-| S1 | Safe `next` redirects + tests | High | XS | 1 |
-| O1/S3 | Encrypted off-machine backups (to the server over SSH) + restore drill | High | S | 1 |
-| S5 | gunicorn instead of the dev server (same port, tunnel unchanged) | High | XS | 1 |
-| O6 | Live instance from a separate worktree | Medium | XS | 1 |
-| O4/O5 | Sync, migrate and check as timers / `ExecStartPre` | Medium | S | 1 |
-| O2/S6 | `/healthz`, failure notifications, Secure cookie, HSTS | Medium | S | 1 |
-| P7 | Small user-data backups (option 1) | Medium | S | 1 |
-| P1/P2 | Fast pull plan + lean deck state | High at scale | S | 2 |
-| P3 | `movements.owner_id` (migration 006) | High at scale | S | 2 |
-| P6/P8 | Sync change guard, `PRAGMA optimize`, checkpoint | Medium | XS | 2 |
-| O3 | Logging config, no silent `except` | Medium | XS | 2 |
-| C1/C2 | Blueprints, ownership meta-test | Medium | M | 2 |
-| S4, S2 | Import double-submit, secret race | Low | XS | 2 |
-| — | Licence file (your choice of licence) | High for FOSS | XS | 3 |
-| C5/O7/O8/O9 | Config module, templated units, CI, lock file, verified Docker | Medium | M | 3 |
-| — | Install docs: pip+systemd, compose, Caddy/nginx, tunnel options | Medium | S | 3 |
-| — | JSON share links + remote shared stock (read-only federation) | Exploratory | M | 4 |
-| P5/P10 | Colour masks, `card_key` column | Low | S | when search grows |
-| C3/C4/C6 | Error base class, ruff/mypy, bench tools | Low | S | any time |
+| # | Item | Severity | Effort | Stage | Status |
+|---|---|---|---|---|---|
+| S1 | Safe `next` redirects + tests | High | XS | 1 | done #19 |
+| O1/S3 | Encrypted off-machine backups (to the server over SSH) + restore drill | High | S | 1 |  |
+| S5 | gunicorn instead of the dev server (same port, tunnel unchanged) | High | XS | 1 |  |
+| O6 | Live instance from a separate worktree | Medium | XS | 1 |  |
+| O4/O5 | Sync, migrate and check as timers / `ExecStartPre` | Medium | S | 1 |  |
+| O2/S6 | `/healthz`, failure notifications, Secure cookie, HSTS | Medium | S | 1 |  |
+| P7 | Small user-data backups (option 1) | Medium | S | 1 |  |
+| P1/P2 | Fast pull plan + lean deck state | High at scale | S | 2 | done #20 |
+| P3 | `movements.owner_id` (migration 006) | High at scale | S | 2 | done #20 |
+| P6/P8 | Sync change guard, `PRAGMA optimize`, checkpoint | Medium | XS | 2 | done #20 |
+| O3 | Logging config, no silent `except` | Medium | XS | 2 | done #25 |
+| C1/C2 | Blueprints, ownership meta-test | Medium | M | 2 |  |
+| S4, S2 | Import double-submit, secret race | Low | XS | 2 | done #19 |
+| — | Licence file (your choice of licence) | High for FOSS | XS | 3 |  |
+| C5/O7/O8/O9 | Config module, templated units, CI, lock file, verified Docker | Medium | M | 3 |  |
+| — | Install docs: pip+systemd, compose, Caddy/nginx, tunnel options | Medium | S | 3 |  |
+| — | JSON share links + remote shared stock (read-only federation) | Exploratory | M | 4 |  |
+| P5/P10 | Colour masks, `card_key` column | Low | S | when search grows |  |
+| C3/C4/C6 | Error base class, ruff/mypy, bench tools | Low | S | any time |  |
 
 Effort: XS < 1 h · S ≈ an evening · M ≈ a weekend.

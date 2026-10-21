@@ -57,6 +57,10 @@ _UPSERT_SQL = (
     + f" IS NOT ({', '.join(f'excluded.{c}' for c in _COLUMNS[1:])})"
 )
 
+class SyncFailed(RuntimeError):
+    """A sync failed; the cause is chained, logged and recorded in ``meta``."""
+
+
 # Only one sync per process at a time (web button + background thread).
 _sync_lock = threading.Lock()
 
@@ -205,7 +209,7 @@ def sync(
     except Exception as exc:
         log.exception("Scryfall sync failed")
         _status(conn, "error", sync_error=f"{type(exc).__name__}: {exc}", last_attempt_at=_now())
-        raise
+        raise SyncFailed(f"{type(exc).__name__}: {exc}") from exc
     finally:
         _sync_lock.release()
 

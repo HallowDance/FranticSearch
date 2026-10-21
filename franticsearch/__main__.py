@@ -22,7 +22,7 @@ import getpass
 import os
 import sys
 
-from . import backup, db, ledger, scryfall, users
+from . import backup, db, ledger, logs, scryfall, users
 
 
 def _db_path(args: argparse.Namespace) -> str:
@@ -71,6 +71,7 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
     path = _db_path(args)
+    logs.configure()
 
     if args.cmd == "serve":
         from .app import create_app
