@@ -2,7 +2,9 @@
 
 Self-hosted Magic: The Gathering collection & deck manager where **every physical card has a location** and decks are just locations. See [PLAN.md](PLAN.md) for the design, decisions and roadmap.
 
-Status: phases 1–6 of the plan are shipped; the app runs for a few users. Plain server-rendered HTML (no JavaScript), usable on a phone.
+Status: a working prototype. Phases 1–6 of the plan are shipped, and it runs for a few users. Plain server-rendered HTML (no JavaScript), usable on a phone.
+
+It's meant to be **self-hosted**: one instance per person or group of friends, with accounts created by the admin. There's no public sign-up, by design. No licence has been chosen yet.
 
 ## How it works
 
@@ -17,11 +19,12 @@ Status: phases 1–6 of the plan are shipped; the app runs for a few users. Plai
 
 - **Collection:** Scryfall card database (~119k printings, synced daily), locations with filters, collection browser, add / move / recount / remove, quick add, paste a card list, move ticked lines, text or image view, history with undo per card, location and deck.
 - **Search:** name, type, rules text, colours / colour identity, mana value, set, format legality; shows how many copies you own and how many are free (not in a deck); quick add to a location or a deck.
-- **Decks:** built here (add from search, a card page or a pasted list; per-card quantity, board, proxies, printing and finish). Status per deck (complete / short / excess), pull and return lists for one deck or all decks, mark as built, mana curve, colours, format checks (legality, copy limits, deck size, commander colour identity).
+- **Decks:** built here (add from search, a card page or a pasted list; per-card quantity, board, proxies, printing and finish). Status per deck (complete / short / excess) and per card (✓, proxies, short; where to fetch free copies while the deck is short), pull and return lists for one deck or all decks, mark as built, mana curve, colours, format checks (legality, copy limits, deck size, commander colour identity).
 - **Shortfalls:** a buy list across all decks (noting when you own another printing), "proxy all short", a proxy list, exports as plain text, Moxfield, TCGplayer mass entry or CSV, and deck export.
 - **Import:** Moxfield deck lists (both text exports, optionally marked as built) and collection CSVs, with a queue for lines that need a decision.
-- **Users:** a few accounts, created by the admin (Users page or CLI; leave the password blank for a generated one), each with a separate collection. Accounts can be disabled and enabled again. Locations and decks can be shared read-only with other users or by link.
+- **Users:** a few accounts, created by the admin on the Users page or with the CLI (leave the password blank for a generated one, shown once), each with a separate collection. Accounts can be disabled and enabled again; a disabled account can't log in and what it shared is hidden. Locations and decks can be shared read-only with other users or by link.
 - **Backups:** gzipped online backups (nightly with the systemd timer) and a checked restore.
+- **Logs:** to stderr (the journal under systemd): logins and failed logins with the client IP, admin actions, syncs, errors; gunicorn's access log with response times.
 
 ## Run locally
 
@@ -34,7 +37,9 @@ python -m franticsearch user add NAME --admin   # first account (asks for a pass
 python -m franticsearch serve                   # http://127.0.0.1:6602
 ```
 
-On first start, `serve` downloads the Scryfall card data in the background (~80 MB, about half a minute) and re-checks it daily. Use `--no-auto-sync` or `FS_AUTO_SYNC=0` to skip that.
+`serve` is Flask's development server; for anything other people reach, use gunicorn (next section, or the Docker image).
+
+On first start, the app downloads the Scryfall card data in the background (~80 MB, about half a minute) and re-checks it daily. Use `--no-auto-sync` or `FS_AUTO_SYNC=0` to skip that.
 
 ### Commands
 
@@ -73,6 +78,8 @@ All commands take `--db PATH`.
 
 The unit paths assume the repo is at `~/hobbies/dev/python/FranticSearch`; adjust `WorkingDirectory`/`ExecStart` otherwise.
 
+To run it in the foreground the same way: `gunicorn -c deploy/gunicorn.conf.py franticsearch.wsgi:app`.
+
 ```sh
 cp deploy/systemd/* ~/.config/systemd/user/ && systemctl --user daemon-reload
 systemctl --user enable --now franticsearch franticsearch-tunnel franticsearch-backup.timer
@@ -98,7 +105,7 @@ The database lives in `./data/franticsearch.db` and backups go to `./data/backup
 ## Tests
 
 ```sh
-pytest        # ~12 s, no network
+pytest        # ~15 s, no network
 ```
 
 ## Layout
@@ -115,6 +122,7 @@ pytest        # ~12 s, no network
 | `franticsearch/importer.py` | Moxfield deck text / collection CSV import, paste a list, the unresolved queue |
 | `franticsearch/exports.py` | card lists as text / Moxfield / TCGplayer / CSV |
 | `franticsearch/backup.py` | backups and restore |
+| `franticsearch/logs.py` | logging setup (`FS_LOG_LEVEL`) |
 | `franticsearch/scryfall.py` | bulk-data sync (`default_cards`) into `printings` |
 | `franticsearch/queries.py` | read-only queries for the UI, location filters, card search |
 | `franticsearch/cardtypes.py` | type line → supertypes / types / subtypes |
@@ -124,5 +132,6 @@ pytest        # ~12 s, no network
 | `Dockerfile`, `compose.yaml` | container build (gunicorn) |
 | `tests/` | pytest suite with a small Scryfall fixture |
 | `PLAN.md`, `CLAUDE.md` | design and roadmap; notes for AI-assisted development |
+| `docs/SCALING.md` | code review, infrastructure expansion guide and backlog |
 
 Card data and images © Wizards of the Coast, provided by [Scryfall](https://scryfall.com). FranticSearch is unofficial Fan Content and is not affiliated with Wizards of the Coast.

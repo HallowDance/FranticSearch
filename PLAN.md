@@ -150,7 +150,7 @@ Each deck still owns one location of type `deck` (data model unchanged): it's wh
 
 Decided with the user:
 - **Buy list per printing, flag alternatives**: lines are per printing + finish (what `pull_plan` can't fill from free copies, after proxies), each with "N free in another printing" (a retarget could replace buying). A filter hides those lines; exports honour it.
-- **Backups: local, nightly.** `franticsearch-backup.timer` (systemd user timer, 03:30, `Persistent=true` so a sleeping laptop catches up on wake) runs `python -m franticsearch backup`: SQLite online backup API, gzipped to `<db dir>/backups/franticsearch-YYYYmmdd-HHMMSS.db.gz`, newest 14 kept (~49 MB each, mostly the Scryfall card cache). No off-machine copy and no download button (not chosen).
+- **Backups: local, nightly.** `franticsearch-backup.timer` (systemd user timer, 03:30, `Persistent=true` so a sleeping laptop catches up on wake) runs `python -m franticsearch backup`: SQLite online backup API, gzipped to `<db dir>/backups/franticsearch-YYYYmmdd-HHMMSS.db.gz`, newest 14 kept (~57 MB each as of 2026-10-21, almost all of it the Scryfall card cache). No off-machine copy and no download button (not chosen).
 - **Restore: CLI only.** `python -m franticsearch restore FILE [--force] [--port N]` refuses while something listens on the server port, checks the file (integrity, has FranticSearch tables), saves the current DB as `<db>.pre-restore-<ts>`, copies the backup in page by page (WAL-safe), runs pending migrations and the ledger check.
 - **Extras**: "Proxy all N short" on a deck; proxy print list; deck export.
 
@@ -229,7 +229,7 @@ Domain logic (`ledger.py`, `deckplan.py` for deck state and pull/return planning
 | 6 | Polish | Batch undo, ledger views, mobile layout pass, backup/restore | **Shipped** (PR #12; batch undo in PR #4) |
 | later | — | Scryfall query syntax, public hosting + auth, prices, scanning, trades between users | Hosting + auth done: reverse proxy (PR #3), in-app login (PR #6), systemd services (PR #10), nightly local backups (PR #12). The rest: § What's next |
 
-### Shipped so far (as of 2026-10-20)
+### Shipped so far (as of 2026-10-21)
 
 - **PR #1, Phase 1 foundation.** Plus a sync fix: Scryfall now serves `default_cards` only as gzipped JSON Lines (`jsonl_download_uri`); the importer reads that and legacy JSON arrays. Verified live: ~119k printings in ~25 s.
 - **PR #2, Phase 2 import.**
@@ -261,12 +261,24 @@ Domain logic (`ledger.py`, `deckplan.py` for deck state and pull/return planning
 - **PR #14, buy list format links**: the format dropdown looked broken without JS; now one link per format, list above the table.
 - **PR #15, mark as built acquires**: "Mark as built" adds the deck's short cards to the collection as new copies, in the deck (import checkbox + deck page button), replacing pull + retarget (§ Phase 4 as built).
 - **PR #16, README** brought up to date.
+- **PR #17, docs** recording #13–#16.
+- **PR #18, code review + expansion guide**: [docs/SCALING.md](docs/SCALING.md) (measurements on a scaled copy of the live DB, findings, staged guide, backlog); the hosting model decision (§ Decisions).
+- **PR #19, security fixes**: open redirect via `next` (`safe_next()`), a duplicate-import race that gave a 500, the first-boot secret-key race.
+- **PR #20, performance**: pull plan and deck state without per-slot subqueries or quadratic loops; migration 006 `movements.owner_id` for per-user history; the Scryfall sync skips unchanged printings; `PRAGMA optimize`. On a scaled copy: `/pull` 2.0 s → 0.3 s, `/history` 1.0 s → 15 ms.
+- **PR #21, admin Users page**: generated passwords (shown once), disable / enable accounts (migration 007, CLI `user disable` / `user enable`; § Users & sharing).
+- **PR #22, deck page**: where-to-fetch columns only while the deck is short; the "owned elsewhere" hint no longer counts the deck's own copies; the slot page lists all your copies.
+- **PR #23, deck page Status column** (✓ / ✓ 1 proxy / 1 in deck, **1 short**) instead of In deck / Proxy / Short.
+- **PR #24, share-link fix**: card images showed inline for visitors without a login.
+- **PR #25, logging** (`logs.py`, `FS_LOG_LEVEL`): no silent background errors; logins, admin actions, migrations, syncs and 500s are logged.
+- **PR #26, gunicorn** for the live instance (`deploy/gunicorn.conf.py`), instead of the Flask dev server.
 
 ## What's next
 
-All six phases are shipped (2026-10-19), plus follow-ups #14–#16 (2026-10-20). Nothing is in progress; the user picks the next item. Candidates:
+All six phases are shipped (2026-10-19), plus follow-ups #14–#26 (to 2026-10-21). The app is still a **prototype**; nothing is in progress, and the user picks the next item. Candidates:
 
-A code review focused on scalability, with a staged infrastructure guide and a prioritised backlog, is in [docs/SCALING.md](docs/SCALING.md) (2026-10-20). Its items are recommendations until picked here.
+A code review focused on scalability, with a staged infrastructure guide and a prioritised backlog, is in [docs/SCALING.md](docs/SCALING.md) (2026-10-20). Its items are recommendations until picked here; the backlog's Status column shows what's done (#19, #20, #25, #26).
+
+**CI/CD waits for the first proper release** (decided 2026-10-21): once the prototype is finished, set up CI (tests and lint on every PR) and a deploy flow (tagged releases, a separate live checkout; docs/SCALING.md § O6–O8). Until then, deploys stay manual: merge, then restart.
 
 Features (from "later"):
 - **Scryfall query syntax** subset (`t:`, `o:`, `c<=`, `mv=` …) in the Search box, on top of the structured filters (§ 5).
@@ -275,10 +287,12 @@ Features (from "later"):
 - Card scanning stays out of scope.
 
 Operations:
-- **Off-machine copies of the backups** (only local ones exist; the laptop is a single point of failure). Not chosen in phase 6; still open.
+- **Off-machine copies of the backups** (only local ones exist; the laptop is a single point of failure). Not chosen in phase 6; still open, and the most important remaining item (docs/SCALING.md § Stage 1: encrypted with `age`, copied to the server over SSH; smaller user-data backups, § P7).
 - `FS_SECURE_COOKIE=1` once the site is only used over HTTPS.
 - `loginctl enable-linger` if the site should run while the owner is logged out (it still stops while the laptop sleeps).
+- Sync, migrate and the ledger check as systemd timers, with failure notifications (docs/SCALING.md § O2, O4, O5).
 - Verify `docker compose up --build` in a real container.
+- Before others self-host it: a **licence** (none chosen yet), templated unit files, install docs (docs/SCALING.md § Stage 3).
 - The live instance stays on the laptop behind the reverse SSH tunnel (decided 2026-10-20); moving it onto the server is not planned for now.
 
 Considered and dropped (2026-10-19):
