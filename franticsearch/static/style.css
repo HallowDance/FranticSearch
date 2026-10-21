@@ -69,11 +69,12 @@ a.tile .qty { position: absolute; top: 6px; left: 6px; background: rgba(0, 0, 0,
 a.tile .cap { display: block; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 h3 { font: bold 13px Verdana, sans-serif; margin: 10px 0 4px; }
 @media (max-width: 640px) { a.tile { width: calc(33.3% - 6px); } }
-/* Card image on hover (no JS). Hidden images with loading=lazy are only fetched once shown. */
-a.cardlink { position: relative; }
-a.cardlink .peek { display: none; }
+/* Card image on hover (no JS). Hidden images with loading=lazy are only fetched once shown.
+   .cardlink is an <a>, or a <span> where there is no card page to link to (anonymous share links). */
+.cardlink { position: relative; }
+.cardlink .peek { display: none; }
 @media (hover: hover) {
-  a.cardlink:hover .peek {
+  .cardlink:hover .peek {
     display: block; position: absolute; left: 100%; top: -60px; margin-left: 16px; z-index: 10;
     width: 244px; border-radius: 10px; border: 1px solid var(--rule);
     box-shadow: 3px 3px 8px rgba(0, 0, 0, .45); pointer-events: none;
