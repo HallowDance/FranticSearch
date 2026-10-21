@@ -54,7 +54,7 @@ Severity: **High** = fix before growing; **Medium** = fix when its trigger appea
 
 **S4 — Double-submit of an import gives a 500 (Low).** ✅ Done in PR #19. `_check_new()` runs outside the transaction (`importer.py:345` / `:388`), and the `UNIQUE(owner_id, sha256)` violation inside it raises `sqlite3.IntegrityError`, which the routes don't catch. Fix: move the check inside the transaction and turn `IntegrityError` into `ImportFailed`.
 
-**S5 — Production runs the Werkzeug development server (High, ops).** `serve` calls `app.run()` (`__main__.py:963`), which is not meant for exposure. It has no worker supervision, no request timeouts, and debug-oriented error handling. `gunicorn` is already in the `serve` extra and the Dockerfile uses it, and it works behind the tunnel unchanged (same `127.0.0.1:6602`). See § Stage 1.
+**S5 — Production runs the Werkzeug development server (High, ops).** ✅ Done in PR #26. `serve` calls `app.run()` (`__main__.py:963`), which is not meant for exposure. It has no worker supervision, no request timeouts, and debug-oriented error handling. `gunicorn` is already in the `serve` extra and the Dockerfile uses it, and it works behind the tunnel unchanged (same `127.0.0.1:6602`). See § Stage 1.
 
 **S6 — Session cookie not `Secure` on the public HTTPS site (Medium).** `FS_SECURE_COOKIE` is off because the same process also serves plain HTTP on the LAN. Two ways out:
 - Run the live instance with `FS_SECURE_COOKIE=1` and use a separate dev instance (another port and DB copy) for plain-HTTP work.
@@ -158,7 +158,7 @@ laptop user timers: sync (daily) · backup (nightly) · check (nightly) · offsi
 ```
 
 1. **Fix S1** (open redirect) and add `/healthz` (O2), on a branch with tests.
-2. **Real WSGI server (S5):** change `franticsearch.service`'s `ExecStart` to `.venv/bin/gunicorn -w 1 --threads 8 -b 127.0.0.1:6602 --access-logfile - franticsearch.wsgi:app`. The port, the tunnel and nginx don't change. Keep `python -m franticsearch serve` for development.
+2. **Real WSGI server (S5)** ✅ done in PR #26: `franticsearch.service` runs `.venv/bin/gunicorn -c deploy/gunicorn.conf.py franticsearch.wsgi:app` (settings in the file, because systemd reads `%` in unit files). The port, the tunnel and nginx don't change. Keep `python -m franticsearch serve` for development.
 3. **Background jobs out of the web process (O4, O5):**
    - `ExecStartPre=… migrate`.
    - A `franticsearch-sync.timer` (daily, `Persistent=true` like the backup timer) and `FS_AUTO_SYNC=0` in the service.
@@ -261,7 +261,7 @@ Infrastructure implications:
 |---|---|---|---|---|---|
 | S1 | Safe `next` redirects + tests | High | XS | 1 | done #19 |
 | O1/S3 | Encrypted off-machine backups (to the server over SSH) + restore drill | High | S | 1 |  |
-| S5 | gunicorn instead of the dev server (same port, tunnel unchanged) | High | XS | 1 |  |
+| S5 | gunicorn instead of the dev server (same port, tunnel unchanged) | High | XS | 1 | done #26 |
 | O6 | Live instance from a separate worktree | Medium | XS | 1 |  |
 | O4/O5 | Sync, migrate and check as timers / `ExecStartPre` | Medium | S | 1 |  |
 | O2/S6 | `/healthz`, failure notifications, Secure cookie, HSTS | Medium | S | 1 |  |

@@ -67,7 +67,7 @@ All commands take `--db PATH`.
 ## Run as a service (systemd user units)
 
 `deploy/systemd/` has user units:
-- `franticsearch.service` runs the app from the repo's `.venv` with `FS_PROXY=1`.
+- `franticsearch.service` runs the app with gunicorn from the repo's `.venv` (`pip install -e ".[serve]"`), with `FS_PROXY=1`. Settings (port 6602 on 127.0.0.1, 1 worker × 8 threads, access log) are in `deploy/gunicorn.conf.py`.
 - `franticsearch-tunnel.service` is an autossh reverse tunnel that exposes the app to a reverse proxy on another host. Edit the host and ports.
 - `franticsearch-backup.timer` runs a backup nightly at 03:30, or at the next wake if the machine was asleep. It keeps 14.
 
@@ -120,7 +120,7 @@ pytest        # ~12 s, no network
 | `franticsearch/cardtypes.py` | type line → supertypes / types / subtypes |
 | `franticsearch/app.py`, `templates/`, `static/` | Flask UI, plain HTML forms |
 | `franticsearch/__main__.py`, `wsgi.py` | command line; WSGI entry point (`franticsearch.wsgi:app`) |
-| `deploy/systemd/` | user units: app, tunnel, nightly backup |
+| `deploy/systemd/`, `deploy/gunicorn.conf.py` | user units: app (gunicorn), tunnel, nightly backup; gunicorn settings |
 | `Dockerfile`, `compose.yaml` | container build (gunicorn) |
 | `tests/` | pytest suite with a small Scryfall fixture |
 | `PLAN.md`, `CLAUDE.md` | design and roadmap; notes for AI-assisted development |

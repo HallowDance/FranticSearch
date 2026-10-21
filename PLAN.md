@@ -211,7 +211,7 @@ Decided for phase 2 (2026-10-18):
 - **SQLite** via the standard library `sqlite3` (WAL mode); numbered plain-SQL migrations tracked in `PRAGMA user_version`
 - **Scryfall bulk data** (`default_cards`, served by Scryfall as gzipped JSON Lines, ~80 MB) streamed into `printings` on first run and re-checked daily (background thread); images hotlinked from Scryfall CDN. Follows Scryfall's API guidelines (bulk file, User-Agent + Accept headers)
 - **pytest** for domain logic (ledger invariants, pull/return planning, import parsing) and Flask test-client page tests
-- **Docker** single container running gunicorn (1 worker, threads), DB in a mounted volume (not yet run in a real container). The live instance runs the Flask dev server as a systemd user service instead (CLAUDE.md § Deployment)
+- **Docker** single container running gunicorn (1 worker, threads), DB in a mounted volume (not yet run in a real container). The live instance runs gunicorn (`deploy/gunicorn.conf.py`, same 1 worker × 8 threads) as a systemd user service instead, since 2026-10-21 (CLAUDE.md § Deployment)
 - **Backups**: `python -m franticsearch backup` (SQLite online backup, gzipped), nightly via a systemd user timer; `restore` from the CLI
 
 Domain logic (`ledger.py`, `deckplan.py` for deck state and pull/return planning, `importer.py`, `exports.py`, `backup.py`) is framework-free and unit-tested; the Flask layer only parses forms and renders.

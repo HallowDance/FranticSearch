@@ -18,7 +18,7 @@ FranticSearch: self-hosted MTG collection & deck manager where **every physical 
 ```sh
 python3 -m venv .venv && . .venv/bin/activate && pip install -e ".[dev,serve]"
 pytest                                   # full suite, ~12 s, no network (134 tests)
-python -m franticsearch serve            # dev server http://127.0.0.1:6602 (auto-syncs Scryfall)
+python -m franticsearch serve            # dev server http://127.0.0.1:6602 (auto-syncs Scryfall); live uses gunicorn
 python -m franticsearch serve --no-auto-sync
 python -m franticsearch migrate          # apply pending migrations (serve also does this)
 python -m franticsearch sync [--force]   # Scryfall default_cards → printings (~80 MB .jsonl.gz, ~25 s)
@@ -78,11 +78,11 @@ Keep domain logic framework-free (unit-testable) and the Flask layer thin.
 
 - **Public URL**: `https://theorycorner.com/franticsearch/`, with the app's own login.
   - Users: `hallowdance` (admin, the owner) and `FallenShaman` (their brother). Passwords are not stored in the repo; reset with `user passwd`.
-- **Chain**: nginx on `theorycorner.com` (`/etc/nginx/sites-enabled/theorycorner.com`, the main `server` block) → `location /franticsearch/` → `127.0.0.1:16602` → reverse SSH tunnel → this machine's dev server on `:6602`.
+- **Chain**: nginx on `theorycorner.com` (`/etc/nginx/sites-enabled/theorycorner.com`, the main `server` block) → `location /franticsearch/` → `127.0.0.1:16602` → reverse SSH tunnel → this machine's gunicorn on `:6602`.
   - nginx sets `X-Forwarded-Prefix /franticsearch`; `location = /franticsearch/login` is rate-limited by zone `fs_login`, defined in `/etc/nginx/conf.d/franticsearch.conf`.
   - Config backups are in the server user's home: `theorycorner.com.nginx.bak-*`.
 - **Port 16602 is opened on all interfaces** (sshd has `GatewayPorts yes`), but **ufw blocks it** from outside (incoming default deny, IPv6 too). Only nginx reaches it. Keep it that way.
-- **The server and tunnel are systemd user services** (since 2026-10-19): `franticsearch.service` (`FS_PROXY=1 .venv/bin/python -m franticsearch serve` in the repo) and `franticsearch-tunnel.service` (autossh `-R 127.0.0.1:16602:127.0.0.1:6602 theorycorner.com`). Both `Restart=always` and enabled for `default.target`.
+- **The server and tunnel are systemd user services** (since 2026-10-19): `franticsearch.service` (`FS_PROXY=1 .venv/bin/gunicorn -c deploy/gunicorn.conf.py franticsearch.wsgi:app` in the repo, since 2026-10-21: 1 worker × 8 threads, access log with response times in the journal) and `franticsearch-tunnel.service` (autossh `-R 127.0.0.1:16602:127.0.0.1:6602 theorycorner.com`). Both `Restart=always` and enabled for `default.target`.
   - Unit files are in `deploy/systemd/`; install with `cp deploy/systemd/* ~/.config/systemd/user/ && systemctl --user daemon-reload && systemctl --user enable --now franticsearch franticsearch-tunnel franticsearch-backup.timer`.
   - **Restart after code changes**: `systemctl --user restart franticsearch`. Logs: `journalctl --user -u franticsearch -f`.
   - The service runs whatever is checked out in the repo, so the live site serves the current branch.
