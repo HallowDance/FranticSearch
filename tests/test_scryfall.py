@@ -119,3 +119,33 @@ def test_sync_downloads_then_skips_unchanged(tmp_path):
     assert scryfall.sync(conn, session=s) == "already up to date"
     assert len(s.calls) == 3  # index, download, index
     assert "imported" in scryfall.sync(conn, session=s, force=True)
+
+
+class BrokenSession:
+    def get(self, url, **kw):
+        raise ConnectionError("scryfall is down")
+
+
+def test_sync_failure_is_logged_recorded_and_raised(conn, caplog):
+    with pytest.raises(scryfall.SyncFailed, match="ConnectionError: scryfall is down") as e:
+        scryfall.sync(conn, session=BrokenSession())
+    assert isinstance(e.value.__cause__, ConnectionError)
+    assert db.get_meta(conn, "sync_status") == "error"
+    assert "scryfall is down" in db.get_meta(conn, "sync_error")
+    assert [r.levelname for r in caplog.records if "sync failed" in r.message] == ["ERROR"]
+    assert not scryfall.is_running()            # the lock is released
+
+
+def test_background_sync_never_raises_and_logs_once(db_path, conn, caplog, monkeypatch):
+    from franticsearch import app as web
+    monkeypatch.setattr(scryfall.requests, "Session", BrokenSession)
+    web._sync_once(db_path)                                       # sync fails: logged by scryfall
+    assert [r.message for r in caplog.records if r.levelname == "ERROR"] == ["Scryfall sync failed"]
+    caplog.clear()
+
+    def broken_check(conn):
+        raise RuntimeError("bad timestamp")
+    monkeypatch.setattr(scryfall, "needs_sync", broken_check)
+    web._sync_once(db_path, only_if_due=True)                     # used to vanish silently
+    (rec,) = [r for r in caplog.records if r.levelname == "ERROR"]
+    assert rec.message == "Scryfall sync check failed" and "bad timestamp" in rec.exc_text

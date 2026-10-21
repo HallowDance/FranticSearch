@@ -17,7 +17,7 @@ FranticSearch: self-hosted MTG collection & deck manager where **every physical 
 
 ```sh
 python3 -m venv .venv && . .venv/bin/activate && pip install -e ".[dev,serve]"
-pytest                                   # full suite, ~12 s, no network (127 tests)
+pytest                                   # full suite, ~12 s, no network (134 tests)
 python -m franticsearch serve            # dev server http://127.0.0.1:6602 (auto-syncs Scryfall)
 python -m franticsearch serve --no-auto-sync
 python -m franticsearch migrate          # apply pending migrations (serve also does this)
@@ -32,7 +32,7 @@ python -m franticsearch user disable NAME | user enable NAME   # also on the web
 docker compose up -d --build             # production-style, DB in ./data (never actually run yet)
 ```
 
-Env: `FS_DB` (default `data/franticsearch.db`), `FS_AUTO_SYNC` (default `1`), `FS_SECRET_KEY` (optional; else generated and stored in `meta`), `FS_PROXY` (`1` = trust a reverse proxy's `X-Forwarded-For/-Proto/-Host/-Prefix`, needed under `/franticsearch/`), `FS_SECURE_COOKIE` (`1` = session cookie only over HTTPS; off because the dev server is also used over plain http).
+Env: `FS_DB` (default `data/franticsearch.db`), `FS_AUTO_SYNC` (default `1`), `FS_SECRET_KEY` (optional; else generated and stored in `meta`), `FS_PROXY` (`1` = trust a reverse proxy's `X-Forwarded-For/-Proto/-Host/-Prefix`, needed under `/franticsearch/`), `FS_SECURE_COOKIE` (`1` = session cookie only over HTTPS; off because the dev server is also used over plain http), `FS_LOG_LEVEL` (default `INFO`; logs go to stderr → the journal).
 
 ## Architecture
 
@@ -50,7 +50,8 @@ Env: `FS_DB` (default `data/franticsearch.db`), `FS_AUTO_SYNC` (default `1`), `F
 | `queries.py` | Read-only queries. Collection / location / history / totals per owner; `shared_stock`; `StockFilter` (location filters, in Python); `CardSearch` + `search()` (phase 3, SQL); whitelisted `order_by()` for `?sort=` |
 | `exports.py` | Card lists as text: `text`, `moxfield` (deck exports with board headers the importer reads back), `tcgplayer`, `csv`. Used by the buy list, deck export, proxy list. |
 | `backup.py` | `backup()` (SQLite backup API → gzip, prune to N), `list_backups()`, `restore()` (port check, integrity check, saves current DB, migrate + ledger check). Nightly via `deploy/systemd/franticsearch-backup.timer`. |
-| `scryfall.py` | Bulk sync: gzipped JSONL from `jsonl_download_uri` (legacy JSON arrays via `ijson`). Upserts, never deletes printings. Stores `face_name`, `set_type`, `digital`, `promo` for default-printing choice. |
+| `logs.py` | `configure()`: one stderr handler for server + CLI (called by `__main__` and `wsgi`, not `create_app`); no timestamps under journald. Logged: logins (failed = WARNING, with IP), admin user actions, migrations applied, sync start/result/failure, 500 tracebacks |
+| `scryfall.py` | Bulk sync: gzipped JSONL from `jsonl_download_uri` (legacy JSON arrays via `ijson`). Upserts, never deletes printings. Stores `face_name`, `set_type`, `digital`, `promo` for default-printing choice. Skips unchanged rows. Failures are logged, recorded in `meta` and raised as `SyncFailed`. |
 | `app.py` + `templates/` + `static/style.css` | Flask, POST-redirect-GET, flash messages. `macros.html`: card links with hover image, tiles, sort headers, view switch, stock actions, filters, sharing box, `place` / `loc_link` (location names, "Decks / <name>"). Routes are grouped by area in `_register_routes`; deck routes live under `/decks/<id>/…` plus `/pull`, `/buy`, `/decks/add-card` (deck id in the form). |
 | `tests/` | pytest. `conftest.py`: `conn` fixture creates admin user `alice` (`ALICE` = 1) and imports `fixtures_default_cards.json` (SOL_C21 / SOL_CMM / DELVER / BOLT). `client` is logged in as alice with CSRF off; use `login_as(client, uid)` for others. `test_users.py` covers isolation; `test_decks.py` (phase 4), `test_shortfalls_backup.py` (phases 5–6), `test_filters.py`, `test_importer.py`, `test_web.py`, `test_ledger.py`. |
 
@@ -104,7 +105,7 @@ Keep domain logic framework-free (unit-testable) and the Flask layer thin.
   - #13 docs · #14 buy list format links · #15 mark as built = add new copies in the deck (import checkbox + deck button) · #16 README refresh
   - #17 docs · #18 code review + expansion guide (`docs/SCALING.md`; hosting model: self-hosted per friend group, never open sign-up)
   - #19 security fixes (open redirect via `next`, import double-submit, secret-key race) · #20 performance (pull plan, lean deck state, migration 006 `movements.owner_id`, sync change guard, `PRAGMA optimize`)
-- 127 tests pass.
+- 134 tests pass.
 - Verified on real data: Scryfall sync (118,893 printings); Moxfield deck text, both exports (100/100); Moxfield collection CSV (337 rows, 0 unresolved, in "Rares Binder"); phase 4–6 pages via read-only GETs; mark as built (old pull version, then the new acquire version: Millicent 100 short → complete) and restore on copies of the live DB; phone layout via headless Chromium at 390 px.
 - **Unverified**: `docker compose up --build` itself (no container runtime on the dev machine).
 - **Next**: nothing in progress. Candidates: `docs/SCALING.md` § Prioritised backlog (Stage 1: harden in place, off-machine backups; Stage 3: FOSS packaging, licence) and PLAN.md § What's next (Scryfall query syntax, trades, prices). Ask the user which.

@@ -62,6 +62,7 @@ All commands take `--db PATH`.
 | `FS_SECRET_KEY` | generated, stored in the DB | session signing key |
 | `FS_PROXY` | `0` | `1` behind a reverse proxy: trust its `X-Forwarded-For/-Proto/-Host/-Prefix` headers, so the app can live under a path such as `/franticsearch/` |
 | `FS_SECURE_COOKIE` | `0` | `1` = send the session cookie over HTTPS only |
+| `FS_LOG_LEVEL` | `INFO` | log level (`DEBUG`, `INFO`, `WARNING` …); logs go to stderr (the journal under systemd, `docker logs` in Docker) |
 
 ## Run as a service (systemd user units)
 
