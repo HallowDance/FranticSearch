@@ -24,19 +24,26 @@
 {% if stats.warnings %}<div class="flash error">{% for w in stats.warnings %}{{ w }}<br>{% endfor %}</div>{% endif %}
 {% endif %}
 {# Shared views show only the list itself: the owner's other locations stay private.
-   Short / Free / Where only while the deck is short: they say where to fetch copies. #}
+   Free / Where only while the deck is short: they say where to fetch copies. #}
 {% set short_cols = not readonly and st.short > 0 %}
-{% set ncols = 4 if readonly else (10 if short_cols else 7) %}
+{% set ncols = 4 if readonly else (8 if short_cols else 6) %}
 {% macro card_href(s) %}{% if not anonymous %}{{ url_for('card', card_key=s.card_key, printing=s.printing_id) }}{% endif %}{% endmacro %}
 {% macro slot_head() -%}
-<tr>{{ m.sort_th('Qty', 'qty', sort) }}{{ m.sort_th('Card', 'name', sort) }}{{ m.sort_th('Cost', 'cost', sort) }}<th>Printing</th>{% if not readonly %}<th>In deck</th><th>Proxy</th>{% if short_cols %}<th>Short</th><th>Free</th><th>Where (free)</th>{% endif %}<th></th>{% endif %}</tr>
+<tr>{{ m.sort_th('Qty', 'qty', sort) }}{{ m.sort_th('Card', 'name', sort) }}{{ m.sort_th('Cost', 'cost', sort) }}<th>Printing</th>{% if not readonly %}<th>Status</th>{% if short_cols %}<th>Free</th><th>Where (free)</th>{% endif %}<th></th>{% endif %}</tr>
+{%- endmacro %}
+{# In deck / proxies / short as one cell: "✓", "✓ 1 proxy", "1 in deck, 1 short". #}
+{% macro proxies(n) %}{{ n }} prox{{ 'y' if n == 1 else 'ies' }}{% endmacro %}
+{% macro slot_status(s) -%}
+{% if s.board == 'maybe' %}<span class="muted">doesn't count</span>
+{%- elif not s.short %}&#10003;{% if s.qty_proxy %} {{ proxies(s.qty_proxy) }}{% endif %}
+{%- else %}{% if s.in_deck %}{{ s.in_deck }} in deck, {% endif %}{% if s.qty_proxy %}{{ proxies(s.qty_proxy) }}, {% endif %}<b>{{ s.short }} short</b>{% endif %}
 {%- endmacro %}
 {% macro slot_row(s) -%}
 <tr><td class="num">{% if readonly %}{{ s.qty_wanted }}{% else %}<a href="{{ url_for('deck_slot', deck_id=deck.id, slot=s.sid) }}" title="edit">{{ s.qty_wanted }}</a>{% endif %}</td>
 <td>{{ m.card_link(card_href(s)|trim, s.name, s.image) }}</td>
 <td class="cost">{{ s.mana_cost|mana }}</td>
 <td>{{ s.set_code|upper }} #{{ s.collector_number }} {{ m.key_tags(s) }}</td>
-{% if not readonly %}{% if s.board == 'maybe' %}<td colspan="{{ 3 if short_cols else 2 }}" class="muted">doesn't count</td>{% else %}<td class="num">{{ s.in_deck }}</td><td class="num">{{ s.qty_proxy or '' }}</td>{% if short_cols %}<td class="num">{% if s.short %}<b>{{ s.short }}</b>{% endif %}</td>{% endif %}{% endif %}
+{% if not readonly %}<td>{{ slot_status(s) }}</td>
 {% if short_cols %}{% if s.short %}<td class="num">{{ s.free }}</td><td>{{ s.free_where or '' }}{% if not s.free and s.owned_any %}<span class="muted">{{ s.owned_any }} in other printings or other decks</span>{% endif %}</td>{% else %}<td></td><td></td>{% endif %}{% endif %}
 <td><a href="{{ url_for('deck_slot', deck_id=deck.id, slot=s.sid) }}">edit</a></td>{% endif %}</tr>
 {%- endmacro %}

@@ -255,8 +255,8 @@ def test_where_columns_only_while_short(client, conn, setup):
     ledger.acquire(conn, binder, StockKey(BOLT), 1)
     deckplan.confirm_pulls(conn, ALICE, deck_ids=[d["id"]])
     page = client.get(f"/decks/{d['id']}").data.decode()
-    assert "Where (free)" not in page and "<th>Short</th>" not in page   # complete: no fetch columns
-    assert "<th>In deck</th>" in page
+    assert "Where (free)" not in page and "<th>Free</th>" not in page   # complete: no fetch columns
+    assert "<th>Status</th>" in page and "<b>1 short</b>" not in page
 
 
 def test_owned_elsewhere_hint_ignores_this_deck(client, conn, setup):
@@ -279,3 +279,26 @@ def test_slot_page_lists_your_copies(client, conn, setup):
     assert "Your copies of Sol Ring" in page
     assert "Decks / Burn</a> <span class=\"muted\">(this deck)" in page
     assert page.count("(free)") == 2 and "foil" in page
+
+
+
+def test_status_column(client, conn, setup):
+    """In deck / proxies / short in one cell."""
+    import re
+    d, binder = setup["deck_row"], setup["binder"]
+    decks.add_slot(conn, d["id"], StockKey(SOL_C21), "main", 1)              # in the deck
+    decks.add_slot(conn, d["id"], StockKey(BOLT), "main", 3, proxy=1)        # 1 in, 1 proxy, 1 short
+    decks.add_slot(conn, d["id"], StockKey(DELVER), "main", 1, proxy=1)      # proxied
+    decks.add_slot(conn, d["id"], StockKey(SOL_CMM), "maybe", 1)
+    ledger.acquire(conn, binder, StockKey(SOL_C21), 1)
+    ledger.acquire(conn, binder, StockKey(BOLT), 1)
+    deckplan.confirm_pulls(conn, ALICE, deck_ids=[d["id"]])
+    page = client.get(f"/decks/{d['id']}").data.decode()
+
+    def status(name: str) -> list[str]:   # the Status cell of each row for that card
+        return [c.strip() for c in re.findall(
+            re.escape(name) + r'(?:<img [^>]*>)?</a></td>\s*<td class="cost">.*?</td>\s*<td>.*?</td>\s*<td>(.*?)</td>', page, re.S)]
+
+    assert status("Sol Ring") == ["&#10003;", '<span class="muted">doesn\'t count</span>']
+    assert status("Lightning Bolt") == ["1 in deck, 1 proxy, <b>1 short</b>"]
+    assert status("Delver of Secrets // Insectile Aberration") == ["&#10003; 1 proxy"]
