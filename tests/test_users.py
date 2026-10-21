@@ -328,3 +328,14 @@ def test_cli_disable_enable(db_path, conn, bob):
     assert run("disable", "alice").returncode == 1        # the last admin
     assert run("enable", "bob").returncode == 0 and not users.get(conn, bob)["disabled"]
     assert run("enable", "nobody").returncode == 1
+
+
+def test_anonymous_share_link_hides_hover_images(client, app, conn, alices):
+    """Visitors get card names without /card/ links (<span class="cardlink">): the hover
+    image must be hidden for those too, not only for <a class="cardlink">."""
+    client.post(f"/locations/{alices['binder']}/visibility", data={"visibility": "link"})
+    token = locations.get(conn, alices["binder"])["share_token"]
+    page = app.test_client().get(f"/s/{token}").data.decode()
+    assert '<span class="cardlink">Sol Ring<img class="peek"' in page
+    css = app.test_client().get("/static/style.css").data.decode()
+    assert ".cardlink .peek { display: none; }" in css and "a.cardlink" not in css
