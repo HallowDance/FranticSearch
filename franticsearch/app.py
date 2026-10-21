@@ -808,7 +808,8 @@ def _register_routes(app: Flask) -> None:
                 WHERE l.owner_id = ? AND COALESCE(p.oracle_id, p.scryfall_id) = ?
                 GROUP BY s.printing_id, s.finish""", (_uid(), card_key))}
         return render_template("deck_slot.html", deck=deck, slot=slot, sid=sid, p=p, card_key=card_key,
-                               printings=queries.card_printings(conn, card_key), counts=counts)
+                               printings=queries.card_printings(conn, card_key), counts=counts,
+                               copies=queries.card_stock(conn, card_key, _uid()))
 
     @app.post("/decks/add-card")
     def deck_add_card():

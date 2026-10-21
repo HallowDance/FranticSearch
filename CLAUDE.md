@@ -17,7 +17,7 @@ FranticSearch: self-hosted MTG collection & deck manager where **every physical 
 
 ```sh
 python3 -m venv .venv && . .venv/bin/activate && pip install -e ".[dev,serve]"
-pytest                                   # full suite, ~12 s, no network (122 tests)
+pytest                                   # full suite, ~12 s, no network (125 tests)
 python -m franticsearch serve            # dev server http://127.0.0.1:6602 (auto-syncs Scryfall)
 python -m franticsearch serve --no-auto-sync
 python -m franticsearch migrate          # apply pending migrations (serve also does this)
@@ -104,7 +104,7 @@ Keep domain logic framework-free (unit-testable) and the Flask layer thin.
   - #13 docs · #14 buy list format links · #15 mark as built = add new copies in the deck (import checkbox + deck button) · #16 README refresh
   - #17 docs · #18 code review + expansion guide (`docs/SCALING.md`; hosting model: self-hosted per friend group, never open sign-up)
   - #19 security fixes (open redirect via `next`, import double-submit, secret-key race) · #20 performance (pull plan, lean deck state, migration 006 `movements.owner_id`, sync change guard, `PRAGMA optimize`)
-- 122 tests pass.
+- 125 tests pass.
 - Verified on real data: Scryfall sync (118,893 printings); Moxfield deck text, both exports (100/100); Moxfield collection CSV (337 rows, 0 unresolved, in "Rares Binder"); phase 4–6 pages via read-only GETs; mark as built (old pull version, then the new acquire version: Millicent 100 short → complete) and restore on copies of the live DB; phone layout via headless Chromium at 390 px.
 - **Unverified**: `docker compose up --build` itself (no container runtime on the dev machine).
 - **Next**: nothing in progress. Candidates: `docs/SCALING.md` § Prioritised backlog (Stage 1: harden in place, off-machine backups; Stage 3: FOSS packaging, licence) and PLAN.md § What's next (Scryfall query syntax, trades, prices). Ask the user which.

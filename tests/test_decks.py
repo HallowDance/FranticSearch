@@ -234,3 +234,48 @@ def test_deck_locations_show_as_decks_slash_name(client, conn, setup):
     assert "Decks</a></td><td>decks</td><td class=\"num\">1</td>" in page
     page = client.get(f"/decks/{setup['deck']}").data.decode()
     assert "Physically in the deck (1)" in page and "Recent moves in and out" in page
+
+
+def test_where_columns_only_while_short(client, conn, setup):
+    """Free / Where (free) say where to fetch copies: only shown for short cards."""
+    d, binder = setup["deck_row"], setup["binder"]
+    decks.add_slot(conn, d["id"], StockKey(SOL_C21), "main", 1)
+    decks.add_slot(conn, d["id"], StockKey(BOLT), "main", 1)
+    ledger.acquire(conn, binder, StockKey(SOL_C21), 1)
+    ledger.acquire(conn, binder, StockKey(SOL_CMM), 1)        # another printing of Sol Ring
+    page = client.get(f"/decks/{d['id']}").data.decode()
+    assert "Where (free)" in page and "Binder" in page          # both short, Sol Ring free in the binder
+
+    deckplan.confirm_pulls(conn, ALICE, deck_ids=[d["id"]])    # Sol Ring C21 into the deck
+    page = client.get(f"/decks/{d['id']}").data.decode()
+    assert "Where (free)" in page                               # Bolt still short ...
+    sol_row = next(r for r in page.split("<tr>") if "Sol Ring" in r)
+    assert "Binder" not in sol_row and "other printings" not in sol_row   # ... but Sol Ring isn't
+
+    ledger.acquire(conn, binder, StockKey(BOLT), 1)
+    deckplan.confirm_pulls(conn, ALICE, deck_ids=[d["id"]])
+    page = client.get(f"/decks/{d['id']}").data.decode()
+    assert "Where (free)" not in page and "<th>Short</th>" not in page   # complete: no fetch columns
+    assert "<th>In deck</th>" in page
+
+
+def test_owned_elsewhere_hint_ignores_this_deck(client, conn, setup):
+    d, binder = setup["deck_row"], setup["binder"]
+    decks.add_slot(conn, d["id"], StockKey(SOL_C21), "main", 2)
+    ledger.acquire(conn, binder, StockKey(SOL_C21), 1)
+    deckplan.confirm_pulls(conn, ALICE, deck_ids=[d["id"]])    # 1 in the deck, 1 short, none free
+    assert "other printings or other decks" not in client.get(f"/decks/{d['id']}").data.decode()
+    ledger.acquire(conn, binder, StockKey(SOL_CMM), 1)
+    assert "1 in other printings or other decks" in client.get(f"/decks/{d['id']}").data.decode()
+
+
+def test_slot_page_lists_your_copies(client, conn, setup):
+    d, binder = setup["deck_row"], setup["binder"]
+    decks.add_slot(conn, d["id"], StockKey(SOL_C21), "main", 1)
+    ledger.acquire(conn, binder, StockKey(SOL_C21), 2)
+    ledger.acquire(conn, binder, StockKey(SOL_CMM, "foil"), 1)
+    deckplan.confirm_pulls(conn, ALICE, deck_ids=[d["id"]])
+    page = client.get(f"/decks/{d['id']}/slot?slot={sid(SOL_C21)}").data.decode()
+    assert "Your copies of Sol Ring" in page
+    assert "Decks / Burn</a> <span class=\"muted\">(this deck)" in page
+    assert page.count("(free)") == 2 and "foil" in page

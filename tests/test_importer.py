@@ -236,7 +236,7 @@ def test_deck_with_moved_cards_cannot_be_deleted(conn):
     ledger.acquire(conn, binder, StockKey(SOL_C21), 1)
     ledger.move(conn, binder, deck["location_id"], StockKey(SOL_C21), 1)
     (slot,) = decks.slots(conn, deck["id"])
-    assert (slot["in_deck"], slot["free"], slot["owned_any"]) == (1, 0, 1)
+    assert (slot["in_deck"], slot["free"], slot["owned_any"]) == (1, 0, 0)   # its own copy isn't "elsewhere"
     with pytest.raises(ledger.LedgerError, match="cannot be deleted"):
         decks.delete(conn, deck["id"])
 

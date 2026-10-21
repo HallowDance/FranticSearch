@@ -246,7 +246,8 @@ _SLOT_COUNTS = """,
                   ) AS free_where,
                   (SELECT COALESCE(SUM(s.qty), 0) FROM stock s JOIN printings p2 ON p2.scryfall_id = s.printing_id
                      JOIN locations l ON l.id = s.location_id
-                    WHERE p2.oracle_id = p.oracle_id AND l.owner_id = dl.owner_id) AS owned_any"""
+                    WHERE p2.oracle_id = p.oracle_id AND l.owner_id = dl.owner_id
+                      AND l.id <> d.location_id) AS owned_any"""
 
 
 def slots(conn: sqlite3.Connection, deck_id: int, *, counts: bool = True) -> list[sqlite3.Row]:
@@ -255,7 +256,7 @@ def slots(conn: sqlite3.Connection, deck_id: int, *, counts: bool = True) -> lis
     ``in_deck`` = copies of the printing + finish at the deck's location (shared by
     slots of the same printing on several boards; ``deckplan.state`` splits it);
     ``free`` = the deck owner's copies of the printing + finish outside any deck;
-    ``owned_any`` = the owner's copies of any printing of the card.
+    ``owned_any`` = the owner's copies of any printing of the card outside this deck.
 
     ``counts=False`` leaves out those four columns (subqueries per slot): the pull
     list, buy list and Decks page compute state for every deck and don't need them.

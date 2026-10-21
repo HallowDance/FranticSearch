@@ -18,5 +18,13 @@
 </table>
 </form>
 <p class="muted">Changing the printing or finish only changes the list: copies of the old printing already in the deck show up on the return list, the new one on the pull list.</p>
+<h2>Your copies of {{ p.name }}</h2>
+{% if copies %}
+<table class="grid">
+<tr><th>Qty</th><th>Printing</th><th>Where</th></tr>
+{% for c in copies %}<tr><td class="num">{{ c.qty }}</td><td>{{ c.set_code|upper }} #{{ c.collector_number }} {{ m.key_tags(c) }}</td>
+<td>{{ m.loc_link(c.location_id, c.location_name, c.location_type) }}{% if c.location_id == deck.location_id %} <span class="muted">(this deck)</span>{% elif c.location_type != 'deck' %} <span class="muted">(free)</span>{% endif %}</td></tr>{% endfor %}
+</table>
+{% else %}<p class="muted">You don't own any copies of this card.</p>{% endif %}
 <div class="clear"></div>
 {% endblock %}
