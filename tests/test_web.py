@@ -98,7 +98,8 @@ def test_import_pages_and_deck_flow(client, conn):
     assert b"no card named" in r.data
     deck_id = conn.execute("SELECT id FROM decks").fetchone()[0]
     page = client.get(f"/decks/{deck_id}").data
-    assert b"Commander (1)" in page and b"Lightning Bolt" in page and b"Delete deck" in page
+    assert b"Commander (1)" in page and b"Lightning Bolt" in page and b"Manage deck" in page
+    assert b"Delete deck" in client.get(f"/decks/{deck_id}/manage").data
     loc_id = conn.execute("SELECT location_id FROM decks").fetchone()[0]
     r = client.get(f"/locations/{loc_id}")                    # deck locations live on the deck page
     assert r.status_code == 302 and r.headers["Location"].endswith(f"/decks/{deck_id}#contents")

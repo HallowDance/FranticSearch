@@ -142,7 +142,8 @@ def test_other_users_ids_are_not_found(bob_client, alices):
             f"/import/{a['import']}", f"/import/line/{a['unresolved']}",
             f"/decks/{a['deck']}/slot?slot={sid}", f"/decks/{a['deck']}/pull",
             f"/decks/{a['deck']}/return", f"/add?deck={a['deck']}&q=sol",
-            f"/decks/{a['deck']}/export?format=moxfield", f"/decks/{a['deck']}/export?what=proxies"]
+            f"/decks/{a['deck']}/export?format=moxfield", f"/decks/{a['deck']}/export?what=proxies",
+            f"/decks/{a['deck']}/manage"]
     for url in gets:
         assert bob_client.get(url).status_code == 404, url
     posts = [

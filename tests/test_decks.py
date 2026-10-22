@@ -302,3 +302,24 @@ def test_status_column(client, conn, setup):
     assert status("Sol Ring") == ["&#10003;", '<span class="muted">doesn\'t count</span>']
     assert status("Lightning Bolt") == ["1 in deck, 1 proxy, <b>1 short</b>"]
     assert status("Delver of Secrets // Insectile Aberration") == ["&#10003; 1 proxy"]
+
+
+def test_manage_page_holds_settings_sharing_export_delete(client, conn, setup):
+    d = setup["deck"]
+    page = client.get(f"/decks/{d}").data.decode()
+    assert "Manage deck" in page
+    for moved in ("<h2>Deck settings</h2>", "<h2>Export</h2>", "Delete deck", 'name="visibility"'):
+        assert moved not in page, moved
+    page = client.get(f"/decks/{d}/manage").data.decode()
+    for there in ("<h2>Deck settings</h2>", "<h2>Export</h2>", "Delete deck", 'name="visibility"',
+                  f'href="/decks/{d}"'):
+        assert there in page, there
+    r = client.post(f"/decks/{d}/edit", data={"name": "Burn 3", "format": "modern", "notes": ""})
+    assert r.headers["Location"].endswith(f"/decks/{d}/manage")
+    r = client.post(f"/locations/{setup['loc']}/visibility", data={"visibility": "users"})
+    assert r.headers["Location"].endswith(f"/decks/{d}/manage")
+    decks.add_slot(conn, d, StockKey(BOLT), "main", 1)
+    ledger.acquire(conn, setup["binder"], StockKey(BOLT), 1)
+    deckplan.confirm_pulls(conn, ALICE, deck_ids=[d])
+    page = client.get(f"/decks/{d}/manage").data.decode()
+    assert "Delete deck" not in page and "can't be deleted" in page
