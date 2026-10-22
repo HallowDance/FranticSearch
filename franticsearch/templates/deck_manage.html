@@ -1,0 +1,26 @@
+{% extends "base.html" %}{% import "macros.html" as m with context %}
+{% block title %}Manage {{ deck.name }}{% endblock %}
+{% block body %}
+<p><a href="{{ url_for('deck_view', deck_id=deck.id) }}">&larr; {{ deck.name }}</a></p>
+<h1>Manage {{ deck.name }}{% if deck.format %} <span class="muted">({{ deck.format }})</span>{% endif %}</h1>
+<h2>Deck settings</h2>
+<form method="post" action="{{ url_for('deck_edit', deck_id=deck.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+<table class="kv">
+<tr><th>Name</th><td><input name="name" value="{{ deck.name }}" size="30" required></td></tr>
+<tr><th>Format</th><td><select name="format">{% for fmt in FORMATS %}<option value="{{ fmt }}" {{ 'selected' if fmt == deck.format }}>{{ fmt or '(none)' }}</option>{% endfor %}</select></td></tr>
+<tr><th>Notes</th><td><input name="notes" value="{{ deck.notes }}" size="50"></td></tr>
+<tr><th></th><td><button>Save</button></td></tr>
+</table>
+</form>
+{{ m.sharing(loc) }}
+<h2>Export</h2>
+<p>Deck list: {% for k, v in EXPORT_FORMATS.items() if k != 'tcgplayer' %}<a href="{{ url_for('deck_export', deck_id=deck.id, format=k) }}">{{ v }}</a> (<a href="{{ url_for('deck_export', deck_id=deck.id, format=k, download=1) }}">download</a>){{ ' · ' if not loop.last }}{% endfor %}
+<br><span class="muted">Moxfield text has board headers; paste it into Moxfield or back into an import here.</span></p>
+{% if st.proxies %}<p>Proxies to print ({{ st.proxies }}): <a href="{{ url_for('deck_export', deck_id=deck.id, what='proxies', format='moxfield') }}">Moxfield</a> &middot; <a href="{{ url_for('deck_export', deck_id=deck.id, what='proxies', format='text') }}">plain text</a></p>{% endif %}
+<h2>Delete</h2>
+{% if deletable %}
+<form method="post" action="{{ url_for('deck_delete', deck_id=deck.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+<button class="danger">Delete deck</button> <span class="muted">no cards have been moved into it; its import record goes too, so the list can be imported again</span>
+</form>
+{% else %}<p class="muted">Cards have been moved into this deck, so it stays in the ledger's history and can't be deleted.</p>{% endif %}
+{% endblock %}

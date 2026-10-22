@@ -770,7 +770,16 @@ def _register_routes(app: Flask) -> None:
             stats=deckplan.analysis(ctx["st"], deck),
             contents=deckplan.deck_stock(conn, deck["location_id"]),
             history=queries.history(conn, _uid(), location_id=deck["location_id"])[:20],
-            deletable=not locations.has_history(conn, deck["location_id"]),
+        )
+
+    @app.get("/decks/<int:deck_id>/manage")
+    def deck_manage(deck_id: int):
+        """Deck settings, sharing, export and delete: kept off the deck page."""
+        conn = g.db
+        deck = _my_deck(deck_id)
+        return render_template(
+            "deck_manage.html", deck=deck, loc=locations.get(conn, deck["location_id"]),
+            st=deckplan.state(conn, deck), deletable=not locations.has_history(conn, deck["location_id"]),
         )
 
     @app.post("/decks/<int:deck_id>/edit")
@@ -782,7 +791,7 @@ def _register_routes(app: Flask) -> None:
             flash("Deck saved.", "ok")
         except LedgerError as e:
             flash(str(e), "error")
-        return redirect(url_for("deck_view", deck_id=deck_id))
+        return redirect(url_for("deck_manage", deck_id=deck_id))
 
     @app.route("/decks/<int:deck_id>/slot", methods=["GET", "POST"])
     def deck_slot(deck_id: int):
@@ -1040,7 +1049,7 @@ def _register_routes(app: Flask) -> None:
         except LedgerError as e:
             flash(str(e), "error")
         deck = decks.by_location(g.db, loc["id"])
-        return redirect(url_for("deck_view", deck_id=deck["id"]) if deck
+        return redirect(url_for("deck_manage", deck_id=deck["id"]) if deck
                         else url_for("location_view", location_id=location_id))
 
     # ---- accounts
@@ -1155,7 +1164,7 @@ def _register_routes(app: Flask) -> None:
             return redirect(url_for("decks_list"))
         except LedgerError as e:
             flash(str(e), "error")
-            return redirect(url_for("deck_view", deck_id=deck_id))
+            return redirect(url_for("deck_manage", deck_id=deck_id))
 
     # ---- history & system
 
