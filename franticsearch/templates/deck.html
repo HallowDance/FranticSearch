@@ -27,10 +27,18 @@
 {# Shared views show only the list itself: the owner's other locations stay private.
    Free / Where only while the deck is short: they say where to fetch copies. #}
 {% set short_cols = not readonly and st.short > 0 %}
+{# Edit mode (?edit=1, owner only): one-click -1 / +1 / Remove per card. #}
+{% set editing = not readonly and request.args.get('edit') == '1' %}
+{% macro back_to(anchor) %}{{ request.script_root ~ request.full_path ~ '#' ~ anchor }}{% endmacro %}
+{% macro row_id(s) %}s-{{ s.printing_id }}-{{ s.finish }}-{{ s.board }}{% endmacro %}
+{% macro slot_buttons(s, compact=false) -%}
+<form class="inline" method="post" action="{{ url_for('deck_slot_step', deck_id=deck.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="slot" value="{{ s.sid }}"><input type="hidden" name="next" value="{{ back_to(row_id(s)) }}"><button name="delta" value="-1" title="one copy fewer">&minus;</button> <button name="delta" value="1" title="one copy more">+</button></form>
+<form class="inline" method="post" action="{{ url_for('deck_slot_remove', deck_id=deck.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="slot" value="{{ s.sid }}"><input type="hidden" name="next" value="{{ back_to('board-' ~ s.board) }}"><button class="danger" title="Remove: take this card off the list">{{ '&times;'|safe if compact else 'Remove' }}</button></form>
+{%- endmacro %}
 {% set ncols = 4 if readonly else (8 if short_cols else 6) %}
 {% macro card_href(s) %}{% if not anonymous %}{{ url_for('card', card_key=s.card_key, printing=s.printing_id) }}{% endif %}{% endmacro %}
 {% macro slot_head() -%}
-<tr>{{ m.sort_th('Qty', 'qty', sort) }}{{ m.sort_th('Card', 'name', sort) }}{{ m.sort_th('Cost', 'cost', sort) }}<th>Printing</th>{% if not readonly %}<th>Status</th>{% if short_cols %}<th>Free</th><th>Where (free)</th>{% endif %}<th></th>{% endif %}</tr>
+<tr>{% if editing %}<th></th>{% endif %}{{ m.sort_th('Qty', 'qty', sort) }}{{ m.sort_th('Card', 'name', sort) }}{{ m.sort_th('Cost', 'cost', sort) }}<th>Printing</th>{% if not readonly %}<th>Status</th>{% if short_cols %}<th>Free</th><th>Where (free)</th>{% endif %}<th></th>{% endif %}</tr>
 {%- endmacro %}
 {# In deck / proxies / short as one cell: "✓", "✓ 1 proxy", "1 in deck, 1 short". #}
 {% macro proxies(n) %}{{ n }} prox{{ 'y' if n == 1 else 'ies' }}{% endmacro %}
@@ -40,7 +48,7 @@
 {%- else %}{% if s.in_deck %}{{ s.in_deck }} in deck, {% endif %}{% if s.qty_proxy %}{{ proxies(s.qty_proxy) }}, {% endif %}<b>{{ s.short }} short</b>{% endif %}
 {%- endmacro %}
 {% macro slot_row(s) -%}
-<tr><td class="num">{% if readonly %}{{ s.qty_wanted }}{% else %}<a href="{{ url_for('deck_slot', deck_id=deck.id, slot=s.sid) }}" title="edit">{{ s.qty_wanted }}</a>{% endif %}</td>
+<tr id="{{ row_id(s) }}">{% if editing %}<td class="act">{{ slot_buttons(s) }}</td>{% endif %}<td class="num">{% if readonly %}{{ s.qty_wanted }}{% else %}<a href="{{ url_for('deck_slot', deck_id=deck.id, slot=s.sid) }}" title="edit">{{ s.qty_wanted }}</a>{% endif %}</td>
 <td>{{ m.card_link(card_href(s)|trim, s.name, s.image) }}</td>
 <td class="cost">{{ s.mana_cost|mana }}</td>
 <td>{{ s.set_code|upper }} #{{ s.collector_number }} {{ m.key_tags(s) }}</td>
@@ -49,12 +57,12 @@
 <td><a href="{{ url_for('deck_slot', deck_id=deck.id, slot=s.sid) }}">edit</a></td>{% endif %}</tr>
 {%- endmacro %}
 {% macro tiles(rows) -%}
-<div class="cardgrid">{% for s in rows %}{{ m.card_tile(card_href(s)|trim, s.name, s.image, s.qty_wanted if s.qty_wanted > 1 else none) }}{% endfor %}</div>
+<div class="cardgrid">{% for s in rows %}{% if editing %}<div class="tilebox" id="{{ row_id(s) }}">{% endif %}{{ m.card_tile(card_href(s)|trim, s.name, s.image, s.qty_wanted if s.qty_wanted > 1 else none) }}{% if editing %}<div class="tilebtns">{{ slot_buttons(s, compact=true) }}</div></div>{% endif %}{% endfor %}</div>
 {%- endmacro %}
 {% macro board(b) -%}
 {% set rows = others[b] %}
 {% if rows %}
-<h2>{{ BOARD_NAMES[b] }} ({{ rows|sum(attribute='qty_wanted') }})</h2>
+<h2 id="board-{{ b }}">{{ BOARD_NAMES[b] }} ({{ rows|sum(attribute='qty_wanted') }})</h2>
 {% if view == 'images' %}{{ tiles(rows) }}{% else %}
 <table class="grid">{{ slot_head() }}{% for s in rows %}{{ slot_row(s) }}{% endfor %}</table>{% endif %}
 {% endif %}
@@ -69,17 +77,22 @@
 {% endcall %}
 {% endif %}
 {{ m.view_switch() }}
+{% if not readonly and slots %}{% set args = request.args.to_dict() %}
+<p class="viewswitch">List:
+{% if editing %}{% set _ = args.pop('edit', None) %}<a href="{{ url_for('deck_view', deck_id=deck.id, **args) }}">View</a> <b>[Edit]</b> <span class="muted">&minus; / + change a card's count, Remove takes it off the list (copies in the deck go on the return list)</span>
+{% else %}{% set _ = args.update(edit='1') %}<b>[View]</b> <a href="{{ url_for('deck_view', deck_id=deck.id, **args) }}">Edit</a>{% endif %}</p>
+{% endif %}
 {% if slots and not shown %}<p class="muted">No cards match the filter.</p>{% endif %}
 {{ board('commander') }}
 {% if groups %}
 {% set main_total = groups|map(attribute=1)|map('sum', attribute='qty_wanted')|sum %}
-<h2>Main ({{ main_total }})</h2>
+<h2 id="board-main">Main ({{ main_total }})</h2>
 {% if view == 'images' %}
 {% for name, rows in groups %}<h3>{{ name }} ({{ rows|sum(attribute='qty_wanted') }})</h3>{{ tiles(rows) }}{% endfor %}
 {% else %}
 <table class="grid">{{ slot_head() }}
 {% for name, rows in groups %}
-<tr class="group"><th colspan="{{ ncols }}">{{ name }} ({{ rows|sum(attribute='qty_wanted') }})</th></tr>
+<tr class="group"><th colspan="{{ ncols + (1 if editing else 0) }}">{{ name }} ({{ rows|sum(attribute='qty_wanted') }})</th></tr>
 {% for s in rows %}{{ slot_row(s) }}{% endfor %}
 {% endfor %}
 </table>

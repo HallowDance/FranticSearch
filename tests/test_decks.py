@@ -3,7 +3,7 @@
 import pytest
 from conftest import ALICE, BOLT, DELVER, SOL_C21, SOL_CMM, SOL_ORACLE
 
-from franticsearch import deckplan, decks, importer, ledger, locations
+from franticsearch import deckplan, decks, importer, ledger, locations, users
 from franticsearch.ledger import LedgerError, StockKey
 
 
@@ -323,3 +323,70 @@ def test_manage_page_holds_settings_sharing_export_delete(client, conn, setup):
     deckplan.confirm_pulls(conn, ALICE, deck_ids=[d])
     page = client.get(f"/decks/{d}/manage").data.decode()
     assert "Delete deck" not in page and "can't be deleted" in page
+
+
+# --------------------------------------------------------------------------- edit mode
+
+def test_step_and_remove_slot(conn, setup):
+    d = setup["deck"]
+    decks.add_slot(conn, d, StockKey(BOLT), "main", 2, proxy=2)
+    assert decks.step_slot(conn, d, sid(BOLT), 1) is None
+    assert decks.get_slot(conn, d, sid(BOLT))["qty_wanted"] == 3
+    assert decks.step_slot(conn, d, sid(BOLT), -1) is None
+    assert decks.step_slot(conn, d, sid(BOLT), -1) is None
+    assert dict(decks.get_slot(conn, d, sid(BOLT)))["qty_proxy"] == 1        # proxies follow the count down
+    gone = decks.step_slot(conn, d, sid(BOLT), -1)
+    assert gone["qty_wanted"] == 1 and decks.get_slot(conn, d, sid(BOLT)) is None
+    with pytest.raises(LedgerError, match="isn't in the deck"):
+        decks.step_slot(conn, d, sid(BOLT), 1)
+    with pytest.raises(LedgerError, match="one copy at a time"):
+        decks.step_slot(conn, d, sid(BOLT), 5)
+    decks.add_slot(conn, d, StockKey(DELVER), "side", 2, proxy=1)
+    removed = decks.remove_slot(conn, d, sid(DELVER, "side"))
+    assert (removed["qty_wanted"], removed["qty_proxy"], removed["board"]) == (2, 1, "side")
+    assert decks.slots(conn, d) == []
+
+
+def test_edit_mode_buttons_only_when_editing(client, conn, setup):
+    d = setup["deck"]
+    decks.add_slot(conn, d, StockKey(BOLT), "main", 1)
+    page = client.get(f"/decks/{d}").data.decode()
+    assert "<b>[View]</b>" in page and f"/decks/{d}?edit=1" in page and "/slot/step" not in page
+    page = client.get(f"/decks/{d}?edit=1&view=images").data.decode()
+    assert "<b>[Edit]</b>" in page and page.count("/slot/step") == 1 and 'class="tilebox"' in page
+    page = client.get(f"/decks/{d}?edit=1&view=text&type=Instant").data.decode()
+    assert page.count("/slot/remove") == 1 and '<input type="hidden" name="edit" value="1">' in page
+
+
+def test_edit_mode_clicks_and_put_back(client, conn, setup):
+    d, loc = setup["deck"], setup["loc"]
+    decks.add_slot(conn, d, StockKey(BOLT), "main", 2, proxy=1)
+    ledger.acquire(conn, setup["binder"], StockKey(BOLT), 1)
+    deckplan.confirm_pulls(conn, ALICE, deck_ids=[d])                     # 1 Bolt in the deck
+    nxt = f"/decks/{d}?edit=1&sort=-qty#s-{BOLT}-nonfoil-main"
+    r = client.post(f"/decks/{d}/slot/step", data={"slot": sid(BOLT), "delta": "1", "next": nxt})
+    assert r.headers["Location"] == nxt and decks.get_slot(conn, d, sid(BOLT))["qty_wanted"] == 3
+    r = client.post(f"/decks/{d}/slot/remove", data={"slot": sid(BOLT)}, follow_redirects=True)
+    page = r.data.decode()
+    assert "Removed 3× Lightning Bolt from the deck" in page.replace("&times;", "×")
+    assert "its 1 copy in the deck is now on the" in page and "Put it back" in page
+    assert decks.get_slot(conn, d, sid(BOLT)) is None
+    assert [l.qty for l in deckplan.return_plan(conn, decks.get(conn, d))] == [1]   # off the list = excess
+    assert ledger.qty_at(conn, loc, StockKey(BOLT)) == 1                    # nothing moved physically
+    r = client.post(f"/decks/{d}/slot/restore", data={"printing_id": BOLT, "finish": "nonfoil", "board": "main",
+                                                      "qty": "3", "proxy": "1"}, follow_redirects=True)
+    slot = decks.get_slot(conn, d, sid(BOLT))
+    assert b"Put back." in r.data and (slot["qty_wanted"], slot["qty_proxy"]) == (3, 1)
+    assert deckplan.return_plan(conn, decks.get(conn, d)) == []
+    r = client.post(f"/decks/{d}/slot/step", data={"slot": "nonsense", "delta": "-1"}, follow_redirects=True)
+    assert b"isn&#39;t in the deck" in r.data or b"isn't in the deck" in r.data
+
+
+def test_shared_deck_has_no_edit_mode(client, app, conn, setup):
+    d = setup["deck"]
+    decks.add_slot(conn, d, StockKey(BOLT), "main", 1)
+    bob = users.create(conn, "bob", "bob's password")
+    client.post(f"/locations/{setup['loc']}/visibility", data={"visibility": "users"})
+    from conftest import login_as
+    page = login_as(app.test_client(), bob).get(f"/decks/{d}?edit=1").data.decode()
+    assert "Lightning Bolt" in page and "/slot/step" not in page and "[Edit]" not in page

@@ -144,7 +144,7 @@ def burn(conn):
 
 def _deck_names(page: bytes) -> list[str]:
     """Card names in the deck's list (not the format warnings above it or the stats below)."""
-    return _names(page.split(b'<p class="viewswitch">')[1].split(b"<h2>Stats")[0])
+    return _names(page.split(b'<p class="viewswitch">', 1)[1].split(b"<h2>Stats")[0])
 
 
 def test_deck_filters(client, burn):
