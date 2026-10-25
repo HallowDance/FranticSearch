@@ -172,6 +172,9 @@ def test_other_users_ids_are_not_found(bob_client, alices):
         (f"/decks/{a['deck']}/return", {"all": "1"}),
         (f"/decks/{a['deck']}/build", {}),
         (f"/decks/{a['deck']}/proxy-short", {}),
+        (f"/decks/{a['deck']}/slot/step", {"slot": sid, "delta": "1"}),
+        (f"/decks/{a['deck']}/slot/remove", {"slot": sid}),
+        (f"/decks/{a['deck']}/slot/restore", {"printing_id": SOL_C21, "board": "main", "qty": "1", "proxy": "0"}),
     ]
     for url, data in posts:
         assert bob_client.post(url, data=data).status_code == 404, url

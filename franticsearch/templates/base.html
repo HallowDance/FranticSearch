@@ -32,6 +32,11 @@
 {% for cat, msg in get_flashed_messages(with_categories=true) %}
 {% if cat == 'undo' %}
 <form class="flash ok undo" method="post" action="{{ url_for('undo') }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="batch" value="{{ msg }}"><input type="hidden" name="next" value="{{ request.script_root ~ request.full_path }}"><button>Undo that</button></form>
+{% elif cat == 'putback' %}{% set pb = msg|fromjson %}
+<form class="flash ok undo" method="post" action="{{ url_for('deck_slot_restore', deck_id=pb.deck) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+{% for k in ('printing_id', 'finish', 'board', 'qty', 'proxy') %}<input type="hidden" name="{{ k }}" value="{{ pb[k] }}">{% endfor %}<input type="hidden" name="next" value="{{ request.script_root ~ request.full_path }}">
+Removed {{ pb.qty }}&times; {{ pb.name }} from the deck{% if pb.in_deck %}; its {{ pb.in_deck }} cop{{ 'y' if pb.in_deck == 1 else 'ies' }} in the deck {{ 'is' if pb.in_deck == 1 else 'are' }} now on the <a href="{{ url_for('deck_return', deck_id=pb.deck) }}">return list</a>{% endif %}.
+<button>Put it back</button></form>
 {% else %}<div class="flash {{ cat }}">{{ msg }}</div>{% endif %}
 {% endfor %}
 {% block body %}{% endblock %}

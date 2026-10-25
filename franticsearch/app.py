@@ -827,6 +827,56 @@ def _register_routes(app: Flask) -> None:
                                printings=queries.card_printings(conn, card_key), counts=counts,
                                copies=queries.card_stock(conn, card_key, _uid()))
 
+    # ---- deck edit mode (?edit=1): one-click -1 / +1 / remove, and "put it back"
+
+    def _deck_back(deck_id: int) -> str:
+        return _back(url_for("deck_view", deck_id=deck_id, edit=1))
+
+    def _removed(deck: sqlite3.Row, slot: dict) -> None:
+        """Flash "Removed ..." with a Put it back button (the slot travels in the message:
+        printing, finish, board and counts, nothing private)."""
+        p = g.db.execute("SELECT name FROM printings WHERE scryfall_id = ?", (slot["printing_id"],)).fetchone()
+        in_deck = g.db.execute(
+            "SELECT COALESCE(SUM(qty), 0) FROM stock WHERE location_id = ? AND printing_id = ? AND finish = ?",
+            (deck["location_id"], slot["printing_id"], slot["finish"])).fetchone()[0]
+        flash(json.dumps({"deck": deck["id"], "printing_id": slot["printing_id"], "finish": slot["finish"],
+                          "board": slot["board"], "qty": slot["qty_wanted"], "proxy": slot["qty_proxy"],
+                          "name": p["name"] if p else "card", "in_deck": in_deck}), "putback")
+
+    @app.post("/decks/<int:deck_id>/slot/step")
+    def deck_slot_step(deck_id: int):
+        deck = _my_deck(deck_id)
+        delta = {"1": 1, "-1": -1}.get(request.form.get("delta", ""), 0)
+        try:
+            removed = decks.step_slot(g.db, deck_id, request.form.get("slot", ""), delta)
+            if removed:
+                _removed(deck, removed)
+        except LedgerError as e:
+            flash(str(e), "error")
+        return redirect(_deck_back(deck_id))
+
+    @app.post("/decks/<int:deck_id>/slot/remove")
+    def deck_slot_remove(deck_id: int):
+        deck = _my_deck(deck_id)
+        try:
+            _removed(deck, decks.remove_slot(g.db, deck_id, request.form.get("slot", "")))
+        except LedgerError as e:
+            flash(str(e), "error")
+        return redirect(_deck_back(deck_id))
+
+    @app.post("/decks/<int:deck_id>/slot/restore")
+    def deck_slot_restore(deck_id: int):
+        """Put back a card removed in edit mode (merges if it was re-added meanwhile)."""
+        _my_deck(deck_id)
+        f = request.form
+        try:
+            decks.add_slot(g.db, deck_id, StockKey(f.get("printing_id", ""), f.get("finish", "nonfoil")),
+                           f.get("board", "main"), _form_qty(), _form_qty("proxy"))
+            flash("Put back.", "ok")
+        except LedgerError as e:
+            flash(str(e), "error")
+        return redirect(_deck_back(deck_id))
+
     @app.post("/decks/add-card")
     def deck_add_card():
         """Add a card to a deck (``deck_id`` field): a given printing (card page) or the

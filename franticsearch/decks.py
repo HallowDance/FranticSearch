@@ -153,6 +153,31 @@ def edit_slot(
             add_slot(conn, deck_id, key, board, qty, proxy)
 
 
+def step_slot(conn: sqlite3.Connection, deck_id: int, sid: str, delta: int) -> dict | None:
+    """Want ``delta`` (+1 / -1) more copies of a slot. At 0 the slot is removed: returns
+    it as it was (for "put it back"), else None. Proxies never exceed the quantity."""
+    if delta not in (1, -1):
+        raise LedgerError("change one copy at a time")
+    with transaction(conn):
+        slot = get_slot(conn, deck_id, sid)
+        if slot is None:
+            raise LedgerError("that card isn't in the deck any more")
+        qty = slot["qty_wanted"] + delta
+        edit_slot(conn, deck_id, sid, qty=qty, proxy=min(slot["qty_proxy"], qty), board=slot["board"])
+    return None if qty else dict(slot)
+
+
+def remove_slot(conn: sqlite3.Connection, deck_id: int, sid: str) -> dict:
+    """Take a card off the deck list (its copies in the deck become excess, i.e. the
+    return list). Returns the slot as it was, for "put it back"."""
+    with transaction(conn):
+        slot = get_slot(conn, deck_id, sid)
+        if slot is None:
+            raise LedgerError("that card isn't in the deck any more")
+        _delete_slot(conn, slot)
+    return dict(slot)
+
+
 def retarget(conn: sqlite3.Connection, deck_id: int, sid: str, key: StockKey, qty: int | None = None) -> None:
     """Switch ``qty`` copies (default all) of a slot to another printing/finish of the card."""
     with transaction(conn):

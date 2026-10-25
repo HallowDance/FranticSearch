@@ -52,6 +52,7 @@
 <form class="filters" method="get" action="{{ url_for(request.endpoint, **request.view_args) }}">
 <fieldset><legend>Filter</legend>
 <input type="hidden" name="sort" value="{{ request.args.get('sort', 'name') }}">
+{% if request.args.get('edit') %}<input type="hidden" name="edit" value="1">{% endif %}
 <label>Name <input name="q" value="{{ f.q }}" size="14"></label>
 <label>Type <select name="type"><option value="">(any)</option>
 {% for t in facets.types %}<option {{ 'selected' if f.type == t }}>{{ t }}</option>{% endfor %}
@@ -70,7 +71,7 @@
 {% if qty %}<label>Qty &ge; <input type="number" name="min_qty" value="{{ f.min_qty or '' }}" min="1"></label>{% endif %}
 {% if caller is defined %}{{ caller() }}{% endif %}
 <button>Filter</button>
-{% if f.active() %}<a href="{{ url_for(request.endpoint, sort=request.args.get('sort', 'name'), **request.view_args) }}">reset</a>
+{% if f.active() %}<a href="{{ url_for(request.endpoint, sort=request.args.get('sort', 'name'), edit=request.args.get('edit') or none, **request.view_args) }}">reset</a>
 <span class="muted">showing {{ shown }} of {{ all_lines }} {{ unit }}</span>{% endif %}
 </fieldset>
 </form>
