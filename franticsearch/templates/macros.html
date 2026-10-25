@@ -18,13 +18,14 @@
 <th><a class="sort" href="{{ url_for(request.endpoint, **args) }}">{{ label }}</a>{% if current == key %} &#9650;{% elif current == '-' ~ key %} &#9660;{% endif %}</th>
 {%- endmacro %}
 
-{# Text | Images switch for card lists (the choice is kept in the session). #}
-{% macro view_switch() -%}
-<p class="viewswitch">View:
+{# Text | Images switch for card lists (the choice is kept in the session).
+   bare=true leaves out the <p>, to share a line with other switches. #}
+{% macro view_switch(bare=false) -%}
+{% if not bare %}<p class="viewswitch">{% endif %}View:
 {% for v, label in [('text', 'Text'), ('images', 'Images')] %}
 {% set args = request.args.to_dict() %}{% set _ = args.update(view=v) %}{% set _ = args.update(request.view_args) %}
 {% if view == v %}<b>[{{ label }}]</b>{% else %}<a href="{{ url_for(request.endpoint, **args) }}">{{ label }}</a>{% endif %}
-{% endfor %}</p>
+{% endfor %}{% if not bare %}</p>{% endif %}
 {%- endmacro %}
 
 {# One card in the image view: picture (lazy), copy count badge, caption. #}

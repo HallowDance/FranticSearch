@@ -107,3 +107,11 @@ table.grid.inner { margin: 2px 0; font-size: 11px; }
 details > summary { white-space: nowrap; }
 .nowrap { white-space: nowrap; }
 form.filters input[type=checkbox] { margin: 0 1px 0 4px; }
+/* Deck page: the card list, with stats / contents / paste beside it on wide screens.
+   The list column takes its content's width; the side column gets the rest (at least 22em). */
+@media (min-width: 1000px) {
+  .deckcols { display: grid; grid-template-columns: minmax(0, auto) minmax(22em, 1fr); column-gap: 16px; align-items: start; }
+  .deckmain { min-width: 0; overflow-x: auto; }
+  .deckside h2:first-child { margin-top: 16px; }
+  .deckside textarea { width: 100%; }
+}

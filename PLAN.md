@@ -113,6 +113,7 @@ Decided (2026-10-18, UI improvements, pulled forward from phase 6):
 - **Nav search** box on every page: jumps to the card on an exact (full or front-face) name match, preferring real cards over art-series cards; else shows the result list.
 - **Sortable columns** via `?sort=key` / `-key` on the collection, location and deck tables (whitelisted server-side).
 - **Deck page**: main deck grouped by type (first match of Creature, Planeswalker, Battle, Land, Instant, Sorcery, Artifact, Enchantment on the front face), shown Creatures → … → Lands; text mana curve over non-land main + commander cards.
+- **Deck page layout** (2026-10-26): the View, Group and List switches share one line. On screens ≥ 1000 px the card list is the left column (as wide as its content) and Stats, Physically in the deck and Add cards from a list sit in a right column; narrower screens keep one column in the same order. CSS grid only.
 - **Deck tags** (decided 2026-10-25): free-text tags on a deck's cards, for grouping and sorting the deck page.
   - A tag belongs to the **card within a deck** (deck + oracle id), not the slot: it applies on every board and survives printing changes and "Put it back". Each deck has its own tags.
   - **Any number per card**; comma-separated on the card's edit page (the only place to edit them). Case-insensitive: a tag already in the deck keeps its first spelling. Max 20 per card, 40 characters each.
