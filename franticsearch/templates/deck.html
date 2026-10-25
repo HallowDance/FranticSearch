@@ -77,16 +77,17 @@
 {% for k, label in DECK_STATUSES.items() %}<option value="{{ k }}" {{ 'selected' if f.status == k }}>{{ label }}</option>{% endfor %}</select></label>{% endif %}
 {% endcall %}
 {% endif %}
-{{ m.view_switch() }}
-{% if has_tags %}<p class="viewswitch">Group main by:
+{# One line of switches: View (text / images) · Group main by (type / tag) · List (view / edit). #}
+<p class="viewswitch">{{ m.view_switch(bare=true) }}
+{% if has_tags %}<span class="nowrap">&middot; Group main by:
 {% for v, label in [('type', 'Type'), ('tag', 'Tag')] %}{% set args = request.args.to_dict() %}{% set _ = args.update(group=v) %}{% set _ = args.update(request.view_args) %}
 {% if group == v %}<b>[{{ label }}]</b>{% else %}<a href="{{ url_for(request.endpoint, **args) }}">{{ label }}</a>{% endif %}
-{% endfor %}{% if group == 'tag' %}<span class="muted">a card with several tags is listed under each</span>{% endif %}</p>{% endif %}
-{% if not readonly and slots %}{% set args = request.args.to_dict() %}
-<p class="viewswitch">List:
-{% if editing %}{% set _ = args.pop('edit', None) %}<a href="{{ url_for('deck_view', deck_id=deck.id, **args) }}">View</a> <b>[Edit]</b> <span class="muted">&minus; / + change a card's count, Remove takes it off the list (copies in the deck go on the return list); tag cards on their edit page</span>
-{% else %}{% set _ = args.update(edit='1') %}<b>[View]</b> <a href="{{ url_for('deck_view', deck_id=deck.id, **args) }}">Edit</a>{% endif %}</p>
-{% endif %}
+{% endfor %}</span>{% endif %}
+{% if not readonly and slots %}{% set args = request.args.to_dict() %}<span class="nowrap">&middot; List:
+{% if editing %}{% set _ = args.pop('edit', None) %}<a href="{{ url_for('deck_view', deck_id=deck.id, **args) }}">View</a> <b>[Edit]</b>
+{% else %}{% set _ = args.update(edit='1') %}<b>[View]</b> <a href="{{ url_for('deck_view', deck_id=deck.id, **args) }}">Edit</a>{% endif %}</span>{% endif %}</p>
+{% if editing %}<p class="muted viewswitch">&minus; / + change a card's count, Remove takes it off the list (copies in the deck go on the return list). Tags are on each card's edit page.</p>{% endif %}
+<div class="deckcols"><div class="deckmain">
 {% if slots and not shown %}<p class="muted">No cards match the filter.</p>{% endif %}
 {{ board('commander') }}
 {% if groups %}
@@ -106,6 +107,9 @@
 {{ board('side') }}
 {{ board('maybe') }}
 {% if not slots %}<p class="muted">No cards.</p>{% endif %}
+</div>
+{# Second column on wide screens (style.css .deckcols): stats, what's in the deck, paste a list. #}
+<div class="deckside">
 {% if slots %}
 <h2>Stats</h2>
 {% if f.active() %}<p class="muted">For the whole deck, not just the filtered cards.</p>{% endif %}
@@ -149,4 +153,5 @@ Board <select name="board">{% for b in BOARDS %}<option value="{{ b }}" {{ 'sele
 <button>Add to deck</button> <span class="muted">Moxfield/MTGA lines; section headers (Commander, Sideboard...) override the board. Lines without a set get your free printing, else the newest one. This only changes the list; cards move via the pull list.</span>
 </form>
 {% endif %}
+</div></div>
 {% endblock %}
