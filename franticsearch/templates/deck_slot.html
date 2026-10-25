@@ -14,6 +14,7 @@
 <option value="{{ pr.scryfall_id }}" {{ 'selected' if pr.scryfall_id == slot.printing_id }}>{{ pr.set_code|upper }} #{{ pr.collector_number }} &mdash; {{ pr.set_name }} ({{ (pr.released_at or '')[:4] }}) [{{ (pr.finishes|fromjson)|join('/') }}]{% if own %} &mdash; {{ own|join('; ') }}{% endif %}</option>{% endfor %}
 </select></td></tr>
 <tr><th>Finish</th><td><select name="finish">{% for fi in FINISHES %}<option {{ 'selected' if fi == slot.finish }}>{{ fi }}</option>{% endfor %}</select> <span class="muted">must be one the printing exists in</span></td></tr>
+<tr><th>Tags</th><td><input type="text" name="tags" value="{{ tags|join(', ') }}" size="30" maxlength="500" placeholder="ramp, draw"> <span class="muted">comma-separated, for grouping the deck page{% if deck_tags %}; in this deck: {{ deck_tags|join(', ') }}{% endif %}</span></td></tr>
 <tr><th></th><td><button>Save</button> <button name="remove" value="1" class="danger">Remove from deck</button></td></tr>
 </table>
 </form>

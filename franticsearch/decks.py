@@ -229,6 +229,91 @@ def grouped(slots: list, sort_key=None) -> list[tuple[str, list]]:
             for g in _GROUP_ORDER if g in groups]
 
 
+UNTAGGED = "Untagged"
+
+
+def grouped_by_tag(slots: list, sort_key=None) -> list[tuple[str, list]]:
+    """[(tag, slots)] by tag name, "Untagged" last. A card with several tags is in
+    each of their groups. Slots need a ``tags`` list (``with_tags``)."""
+    groups: dict[str, list] = {}
+    for s in slots:
+        for t in s["tags"] or [UNTAGGED]:
+            groups.setdefault(t, []).append(s)
+    names = sorted((t for t in groups if t != UNTAGGED), key=str.lower)
+    names += [UNTAGGED] if UNTAGGED in groups else []
+    return [(t, sorted(groups[t], key=sort_key) if sort_key else groups[t]) for t in names]
+
+
+# ---- tags: per card (``card_key``) within a deck, any number, case-insensitive
+
+MAX_TAGS = 20
+MAX_TAG_LEN = 40
+
+
+def parse_tags(text: str) -> list[str]:
+    """Comma-separated tags → cleaned list (spaces collapsed, duplicates dropped)."""
+    out: list[str] = []
+    for t in (text or "").split(","):
+        t = " ".join(t.split())
+        if not t or t.lower() in (o.lower() for o in out):
+            continue
+        if len(t) > MAX_TAG_LEN:
+            raise LedgerError(f"tag {t[:20]!r}... is too long (max {MAX_TAG_LEN})")
+        if t.lower() == UNTAGGED.lower():
+            raise LedgerError(f"{UNTAGGED!r} can't be used as a tag")
+        out.append(t)
+    if len(out) > MAX_TAGS:
+        raise LedgerError(f"at most {MAX_TAGS} tags per card")
+    return out
+
+
+def card_key(conn: sqlite3.Connection, printing_id: str) -> str:
+    """The key tags are stored under: the card's oracle id, else the printing id."""
+    row = conn.execute("SELECT COALESCE(oracle_id, scryfall_id) FROM printings WHERE scryfall_id = ?",
+                       (printing_id,)).fetchone()
+    return row[0] if row else printing_id
+
+
+def tags(conn: sqlite3.Connection, deck_id: int) -> dict[str, list[str]]:
+    """{card_key: [tags, sorted case-insensitively]} for a deck (includes cards no longer on the list)."""
+    out: dict[str, list[str]] = {}
+    for key, tag in conn.execute(
+            "SELECT card_key, tag FROM deck_tags WHERE deck_id = ? ORDER BY tag", (deck_id,)):
+        out.setdefault(key, []).append(tag)
+    return out
+
+
+def tag_names(conn: sqlite3.Connection, deck_id: int) -> list[str]:
+    """The tags used on cards that are on the deck's list."""
+    return [r[0] for r in conn.execute(
+        "SELECT DISTINCT t.tag FROM deck_tags t WHERE t.deck_id = ? AND EXISTS ("
+        " SELECT 1 FROM deck_slots ds JOIN printings p ON p.scryfall_id = ds.printing_id"
+        " WHERE ds.deck_id = t.deck_id AND COALESCE(p.oracle_id, p.scryfall_id) = t.card_key)"
+        " ORDER BY t.tag", (deck_id,))]
+
+
+def set_tags(conn: sqlite3.Connection, deck_id: int, card_key: str, text: str) -> list[str]:
+    """Replace a card's tags in a deck with the comma-separated ``text``. A tag the
+    deck already uses in another spelling ("Ramp" vs "ramp") takes that spelling."""
+    new = parse_tags(text)
+    with transaction(conn):
+        spelling = {r[0].lower(): r[0] for r in conn.execute(
+            "SELECT DISTINCT tag FROM deck_tags WHERE deck_id = ? AND card_key <> ?", (deck_id, card_key))}
+        new = [spelling.get(t.lower(), t) for t in new]
+        conn.execute("DELETE FROM deck_tags WHERE deck_id = ? AND card_key = ?", (deck_id, card_key))
+        conn.executemany("INSERT INTO deck_tags(deck_id, card_key, tag) VALUES (?, ?, ?)",
+                         [(deck_id, card_key, t) for t in new])
+    return sorted(new, key=str.lower)
+
+
+def with_tags(conn: sqlite3.Connection, deck_id: int, slots: list[dict]) -> list[dict]:
+    """Set ``s["tags"]`` on each slot dict (sorted list, empty if none)."""
+    by_card = tags(conn, deck_id)
+    for s in slots:
+        s["tags"] = by_card.get(s["card_key"], [])
+    return slots
+
+
 def mana_curve(slots: list) -> list[tuple[str, int]]:
     """Copies per mana value (0..6, "7+") over non-land cards."""
     counts = [0] * 8
