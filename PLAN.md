@@ -29,10 +29,11 @@ A self-hosted MTG collection & deck manager built around one idea: **every physi
 | `movements` | Append-only ledger: `id`, `ts`, `owner_id`, `from_location`, `to_location`, printing key, `qty`, `reason` (`import` · `acquire` · `pull` · `return` · `move` · `adjust` · `sell`), `note`, `batch_id`, `undo_of` (the batch an undo reverses) |
 | `decks` | `id`, `name`, `format`, `location_id`, `notes` |
 | `deck_slots` | `deck_id`, printing key (always NM/en), `board` (`main` · `side` · `commander` · `maybe`), `qty_wanted`, `qty_proxy` |
+| `deck_tags` | `deck_id`, `card_key` (oracle id, else Scryfall id), `tag` (case-insensitive). Tags on a deck's cards (008, § 7 Deck tags) |
 | `imports`, `import_unresolved` | One row per imported file / deck list (owner, sha256 for duplicate refusal), and the lines that need a decision (phase 2) |
 | `meta` | Key/value: Scryfall sync state, generated secret key |
 
-Schema history: `migrations/001`–`007` (005 = users & sharing; 006 = `movements.owner_id`, the owner of each movement, for fast per-user history, docs/SCALING.md § P3; 007 = `users.disabled`).
+Schema history: `migrations/001`–`008` (005 = users & sharing; 006 = `movements.owner_id`, the owner of each movement, for fast per-user history, docs/SCALING.md § P3; 007 = `users.disabled`; 008 = `deck_tags`).
 
 Rules:
 - `stock` and `movements` are always written in the same transaction; `stock` must equal the ledger's projection (a check command verifies this).
@@ -112,6 +113,12 @@ Decided (2026-10-18, UI improvements, pulled forward from phase 6):
 - **Nav search** box on every page: jumps to the card on an exact (full or front-face) name match, preferring real cards over art-series cards; else shows the result list.
 - **Sortable columns** via `?sort=key` / `-key` on the collection, location and deck tables (whitelisted server-side).
 - **Deck page**: main deck grouped by type (first match of Creature, Planeswalker, Battle, Land, Instant, Sorcery, Artifact, Enchantment on the front face), shown Creatures → … → Lands; text mana curve over non-land main + commander cards.
+- **Deck tags** (decided 2026-10-25): free-text tags on a deck's cards, for grouping and sorting the deck page.
+  - A tag belongs to the **card within a deck** (deck + oracle id), not the slot: it applies on every board and survives printing changes and "Put it back". Each deck has its own tags.
+  - **Any number per card**; comma-separated on the card's edit page (the only place to edit them). Case-insensitive: a tag already in the deck keeps its first spelling. Max 20 per card, 40 characters each.
+  - "Group main by: **Type** | **Tag**" (shown once the deck has tags; `?group=tag`, not remembered): a card with several tags is listed under each tag, untagged cards last under "Untagged"; the Main total counts each card once. Other boards stay flat.
+  - A sortable Tags column (by first tag, untagged last). Shared views show tags too.
+  - Not in Moxfield import/export for now (Moxfield's `#tag` suffix could be read and written later).
 - **Collection and deck filters** (decided 2026-10-21): the same filter form as locations (`macros.stock_filter`, `queries.StockFilter`), in Python.
   - **Collection**: the location fields plus location, location kind and "not in any deck". A card shows if any of its copies match. Qty ≥ counts its matching copies together. Grouping, sorting and paging happen in Python over the user's stock lines (8k lines: ~120 ms). The Name box is "name contains", as on locations.
   - **Decks**: the location fields (no Qty) plus board and status (short / with proxies / complete). Stats, curve and warnings describe the whole deck. Shared deck views get the filters without Status (it would reveal what's physically in the deck).

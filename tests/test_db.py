@@ -5,12 +5,13 @@ def test_migrate_is_idempotent(tmp_path):
     conn = db.connect(tmp_path / "x.db")
     first = db.migrate(conn)
     assert first == ["001_initial.sql", "002_location_archive.sql", "003_imports.sql",
-                     "004_undo.sql", "005_users.sql", "006_movement_owner.sql", "007_user_disabled.sql"]
+                     "004_undo.sql", "005_users.sql", "006_movement_owner.sql", "007_user_disabled.sql",
+                     "008_deck_tags.sql"]
     assert db.migrate(conn) == []
-    assert db.schema_version(conn) == 7
+    assert db.schema_version(conn) == 8
     tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert {"printings", "locations", "stock", "movements", "decks", "deck_slots", "meta",
-            "imports", "import_unresolved", "users"} <= tables
+            "imports", "import_unresolved", "users", "deck_tags"} <= tables
 
 
 def test_meta_roundtrip(conn):

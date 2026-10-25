@@ -390,3 +390,62 @@ def test_shared_deck_has_no_edit_mode(client, app, conn, setup):
     from conftest import login_as
     page = login_as(app.test_client(), bob).get(f"/decks/{d}?edit=1").data.decode()
     assert "Lightning Bolt" in page and "/slot/step" not in page and "[Edit]" not in page
+
+
+# --------------------------------------------------------------------------- tags
+
+def test_tags_parse_set_and_group(conn, setup):
+    d = setup["deck"]
+    assert decks.parse_tags(" ramp ,  card  draw, Ramp,,") == ["ramp", "card draw"]
+    with pytest.raises(LedgerError):
+        decks.parse_tags("x" * 41)
+    with pytest.raises(LedgerError):
+        decks.parse_tags("untagged")
+    decks.add_slot(conn, d, StockKey(SOL_C21), "main", 1)
+    decks.add_slot(conn, d, StockKey(BOLT), "main", 4)
+    decks.add_slot(conn, d, StockKey(DELVER), "main", 2)
+    assert decks.set_tags(conn, d, SOL_ORACLE, "Ramp, value") == ["Ramp", "value"]
+    bolt = decks.card_key(conn, BOLT)
+    assert decks.set_tags(conn, d, bolt, "ramp, removal") == ["Ramp", "removal"]   # deck's spelling
+    slots = decks.with_tags(conn, d, deckplan.state(conn, decks.get(conn, d))["slots"])
+    groups = decks.grouped_by_tag(slots, sort_key=lambda s: s["name"])
+    assert [(t, [s["name"] for s in rows]) for t, rows in groups] == [
+        ("Ramp", ["Lightning Bolt", "Sol Ring"]), ("removal", ["Lightning Bolt"]),
+        ("value", ["Sol Ring"]), ("Untagged", ["Delver of Secrets // Insectile Aberration"])]
+    # tags belong to the card, not the slot: a printing change keeps them
+    decks.edit_slot(conn, d, sid(SOL_C21), qty=1, proxy=0, board="side", printing_id=SOL_CMM, finish="etched")
+    assert decks.tags(conn, d)[SOL_ORACLE] == ["Ramp", "value"]
+    assert decks.set_tags(conn, d, SOL_ORACLE, "") == [] and SOL_ORACLE not in decks.tags(conn, d)
+    assert decks.tag_names(conn, d) == ["Ramp", "removal"]
+    decks.delete(conn, d)
+    assert conn.execute("SELECT COUNT(*) FROM deck_tags").fetchone()[0] == 0
+
+
+def test_tags_on_the_deck_page(client, app, conn, setup):
+    d = setup["deck"]
+    decks.add_slot(conn, d, StockKey(SOL_C21), "main", 1)
+    decks.add_slot(conn, d, StockKey(BOLT), "main", 4)
+    page = client.get(f"/decks/{d}").data.decode()
+    assert "Group main by" not in page and "<th>Tags" not in page   # no tags yet
+    url = f"/decks/{d}/slot?slot={sid(SOL_C21)}"
+    assert 'name="tags"' in client.get(url).data.decode()
+    client.post(f"/decks/{d}/slot", data={"slot": sid(SOL_C21), "qty": "1", "proxy": "0", "board": "main",
+                                          "tags": "ramp, rocks"})
+    assert decks.tags(conn, d) == {SOL_ORACLE: ["ramp", "rocks"]}
+    # a bad tag saves nothing, not even the quantity
+    r = client.post(f"/decks/{d}/slot", data={"slot": sid(SOL_C21), "qty": "3", "proxy": "0", "board": "main",
+                                              "tags": "x" * 50}, follow_redirects=True)
+    assert b"too long" in r.data and decks.slots(conn, d)[1]["qty_wanted"] == 1
+    page = client.get(f"/decks/{d}").data.decode()
+    assert "Group main by" in page and "Tags</a>" in page and "ramp, rocks" in page
+    assert "<th>Creatures" not in page and ">Artifacts (1)<" in page   # grouped by type
+    page = client.get(f"/decks/{d}?group=tag").data.decode()
+    assert ">ramp (1)<" in page and ">rocks (1)<" in page and ">Untagged (4)<" in page
+    assert "Main (5)" in page   # Sol Ring counted once although it's in two groups
+    assert client.get(f"/decks/{d}?group=tag&sort=tags&view=images").status_code == 200
+    # shared read-only view shows the tags too
+    bob = users.create(conn, "bob", "bob's password")
+    client.post(f"/locations/{setup['loc']}/visibility", data={"visibility": "users"})
+    from conftest import login_as
+    page = login_as(app.test_client(), bob).get(f"/decks/{d}?group=tag").data.decode()
+    assert ">ramp (1)<" in page

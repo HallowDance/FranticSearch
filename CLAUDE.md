@@ -17,7 +17,7 @@ FranticSearch: self-hosted MTG collection & deck manager where **every physical 
 
 ```sh
 python3 -m venv .venv && . .venv/bin/activate && pip install -e ".[dev,serve]"
-pytest                                   # full suite, ~12 s, no network (145 tests)
+pytest                                   # full suite, ~12 s, no network (147 tests)
 python -m franticsearch serve            # dev server http://127.0.0.1:6602 (auto-syncs Scryfall); live uses gunicorn
 python -m franticsearch serve --no-auto-sync
 python -m franticsearch migrate          # apply pending migrations (serve also does this)
@@ -38,12 +38,12 @@ Env: `FS_DB` (default `data/franticsearch.db`), `FS_AUTO_SYNC` (default `1`), `F
 
 | File | Role |
 |---|---|
-| `franticsearch/migrations/NNN_*.sql` | Schema; latest is `007_user_disabled.sql` (006 = `movements.owner_id`, set by `ledger._record`; 007 = `users.disabled`). Append a new numbered file for every change; never edit applied ones. The runner disables FKs per migration (so tables can be rebuilt) and runs `foreign_key_check` before COMMIT. Version in `PRAGMA user_version`. |
+| `franticsearch/migrations/NNN_*.sql` | Schema; latest is `008_deck_tags.sql` (006 = `movements.owner_id`, set by `ledger._record`; 007 = `users.disabled`; 008 = `deck_tags`). Append a new numbered file for every change; never edit applied ones. The runner disables FKs per migration (so tables can be rebuilt) and runs `foreign_key_check` before COMMIT. Version in `PRAGMA user_version`. |
 | `db.py` | Connections (WAL, FKs on, autocommit), **re-entrant** `transaction()` (joins an open one, so domain functions compose atomically), migration runner, `meta` helpers |
 | `ledger.py` | **The only code that changes `stock`.** acquire(_many) / move(_many) / transfer_many (several from→to pairs, one batch) / adjust / sell / undo write stock + `movements` in one transaction. Refuses moves between two users' locations. `check()` verifies the invariant. Also `LANGUAGES`, `CONDITIONS`, `StockKey`, `validate_key`. |
 | `users.py` | Accounts: create (first admin adopts ownerless locations/imports/movements), authenticate (constant-ish time; refuses disabled accounts), set password, `generate_password()`, `set_disabled()` (never the last enabled admin) |
 | `locations.py` | Location CRUD (owner, names unique per owner), archive, visibility (`private` < `users` < `link`) + share tokens, `can_view`, `shared()` for the People page, `unsorted()` (the owner's "Unsorted" box, created on use) |
-| `decks.py` | Deck + its same-named deck location (`update` renames both), `add_slot`, `edit_slot` (qty / proxy / board / printing / finish; merges, qty 0 removes), `retarget`, slot ids `printing\|finish\|cond\|lang\|board`, `slots(counts=True)` (in-deck / free / where / any-printing-outside-this-deck subqueries, scoped to the deck owner; `counts=False` skips them), `grouped()` by card type, `mana_curve()`, delete (only if the deck location has no history). `BOARDS`, `FORMATS`, `COMMANDER_FORMATS`. |
+| `decks.py` | Deck + its same-named deck location (`update` renames both), `add_slot`, `edit_slot` (qty / proxy / board / printing / finish; merges, qty 0 removes), `retarget`, slot ids `printing\|finish\|cond\|lang\|board`, `slots(counts=True)` (in-deck / free / where / any-printing-outside-this-deck subqueries, scoped to the deck owner; `counts=False` skips them), `grouped()` by card type, tags per card in a deck (`set_tags`, `with_tags`, `grouped_by_tag()`), `mana_curve()`, delete (only if the deck location has no history). `BOARDS`, `FORMATS`, `COMMANDER_FORMATS`. |
 | `deckplan.py` | Phases 4–5, computed never stored: `buy_list()`, `proxy_short()`, `state(counts=False)` (per-slot in_deck / short, excess lines; the deck page passes `counts=True`), `pull_plan()` / `confirm_pulls()` (one deck or all; free copies planned once), `return_plan()` / `confirm_returns()` (default = last pull source, else Unsorted), `mark_built()` (acquire what's short as new copies into the deck location; not pulls), `analysis()` (colours, legality, copy limits, size, commander identity). Confirm functions recompute the plan, so stale forms can't over-move. |
 | `importer.py` | Moxfield deck text / collection CSV: parse → `resolve()` (set+cn → name+set → `default_key()` = owner's free copy, else newest released regular paper printing) → import (per-owner sha256 dedupe). Unresolved queue fix/dismiss. `paste_into()` (location) and `paste_into_deck()` (slots) for quick list entry. |
 | `cardtypes.py` | Type line → (supertypes, card types, subtypes) over all faces; cached, returns frozensets |
@@ -89,7 +89,7 @@ Keep domain logic framework-free (unit-testable) and the Flask layer thin.
   - The service runs whatever is checked out in the repo, so the live site serves the current branch.
   - Lingering is off: the services start at login and stop at logout (`loginctl enable-linger` would keep them running without a session). They're down while the laptop sleeps; autossh reconnects after wake.
   - A 502 on the public URL means one of them is down: `systemctl --user status franticsearch franticsearch-tunnel`.
-- **Live DB**: `data/franticsearch.db` (gitignored, ~240 MB, nearly all of it the card cache), schema 7. Old manual backup from before migration 005: `data/franticsearch.db.bak-pre-2b-20261018`.
+- **Live DB**: `data/franticsearch.db` (gitignored, ~240 MB, nearly all of it the card cache), schema 8. Old manual backup from before migration 005: `data/franticsearch.db.bak-pre-2b-20261018`.
 - **Backups**: `franticsearch-backup.timer` runs `python -m franticsearch backup` nightly at 03:30 (catches up after sleep) into `data/backups/` (gitignored), keeping 14 (~57 MB each). The System page lists them. Check with `systemctl --user list-timers franticsearch-backup.timer`. Local only, no off-machine copy. First (manual) backup: 2026-10-19; the first timer run was due the night of 2026-10-20.
   - **To restore**: `systemctl --user stop franticsearch`, then `python -m franticsearch restore data/backups/<file>.db.gz` (saves the current DB as `<db>.pre-restore-<ts>`, migrates, runs the ledger check), then `systemctl --user start franticsearch`.
 - **Git**: `origin` is SSH (`git@github.com:HallowDance/FranticSearch.git`); `gh` is logged in as HallowDance.
@@ -107,7 +107,7 @@ Keep domain logic framework-free (unit-testable) and the Flask layer thin.
   - #17 docs · #18 code review + expansion guide (`docs/SCALING.md`; hosting model: self-hosted per friend group, never open sign-up)
   - #19 security fixes (open redirect via `next`, import double-submit, secret-key race) · #20 performance (pull plan, lean deck state, migration 006 `movements.owner_id`, sync change guard, `PRAGMA optimize`)
   - #21 admin Users page (generated passwords, disable/enable; migration 007) · #22 deck where-columns only while short, owned-elsewhere fix · #23 deck Status column · #24 share-link hover images · #25 logging · #26 gunicorn for the live instance
-- 145 tests pass.
+- 147 tests pass.
 - Verified on real data: Scryfall sync (118,893 printings); Moxfield deck text, both exports (100/100); Moxfield collection CSV (337 rows, 0 unresolved, in "Rares Binder"); phase 4–6 pages via read-only GETs; mark as built (old pull version, then the new acquire version: Millicent 100 short → complete) and restore on copies of the live DB; phone layout via headless Chromium at 390 px.
 - **Unverified**: `docker compose up --build` itself (no container runtime on the dev machine).
 - **Next**: nothing in progress. Candidates: `docs/SCALING.md` § Prioritised backlog (Stage 1: off-machine backups first, timers, Secure cookie; Stage 3: FOSS packaging, licence) and PLAN.md § What's next (Scryfall query syntax, trades, prices). **CI/CD waits for the first proper release.** Ask the user which.

@@ -272,20 +272,24 @@ def _deck_context(deck: sqlite3.Row, readonly: bool = False) -> dict:
     Filters only narrow the card list: ``st`` and the curve cover the whole deck."""
     sort = request.args.get("sort", "name")
     keys = {"name": lambda s: s["name"].lower(), "cost": lambda s: (s["cmc"] or 0, s["name"].lower()),
-            "qty": lambda s: (s["qty_wanted"], s["name"].lower())}
+            "qty": lambda s: (s["qty_wanted"], s["name"].lower()),
+            "tags": lambda s: (not s["tags"], [t.lower() for t in s["tags"]], s["name"].lower())}
     key = keys.get(sort.lstrip("-"), keys["name"])
     st = deckplan.state(g.db, deck, counts=True)
-    slots = st["slots"]
+    slots = decks.with_tags(g.db, deck["id"], st["slots"])
+    has_tags = any(s["tags"] for s in slots)
+    group = "tag" if has_tags and request.args.get("group") == "tag" else "type"
     f = queries.DeckFilter.from_args(request.args)
     if readonly:
         f.status = ""   # what's physically in someone's deck isn't part of the shared view
     shown = [s for s in slots if f.matches(s)]
     boards = {b: [s for s in shown if s["board"] == b] for b in decks.BOARDS}
     return dict(
-        deck=deck, slots=slots, sort=sort, st=st, f=f, shown=shown,
+        deck=deck, slots=slots, sort=sort, st=st, f=f, shown=shown, has_tags=has_tags, group=group,
         facets=queries.stock_facets(slots),
         groups=[(g_, rows[::-1] if sort.startswith("-") else rows)
-                for g_, rows in decks.grouped(boards["main"], key)],
+                for g_, rows in (decks.grouped_by_tag if group == "tag" else decks.grouped)(boards["main"], key)],
+        main_slots=boards["main"],
         others={b: sorted(boards[b], key=key, reverse=sort.startswith("-"))
                 for b in ("commander", "side", "maybe")},
         curve=decks.mana_curve([s for s in slots if s["board"] in ("main", "commander")]),
@@ -806,9 +810,12 @@ def _register_routes(app: Flask) -> None:
             f = request.form
             try:
                 qty = 0 if f.get("remove") else _form_qty()
-                decks.edit_slot(conn, deck_id, sid, qty=qty, proxy=_form_qty("proxy") if qty else 0,
-                                board=f.get("board", slot["board"]),
-                                printing_id=f.get("printing_id") or None, finish=f.get("finish") or None)
+                with db.transaction(conn):   # a bad tag saves nothing
+                    decks.edit_slot(conn, deck_id, sid, qty=qty, proxy=_form_qty("proxy") if qty else 0,
+                                    board=f.get("board", slot["board"]),
+                                    printing_id=f.get("printing_id") or None, finish=f.get("finish") or None)
+                    if qty and "tags" in f:
+                        decks.set_tags(conn, deck_id, decks.card_key(conn, slot["printing_id"]), f["tags"])
                 flash("Slot removed." if not qty else "Slot saved.", "ok")
                 return redirect(url_for("deck_view", deck_id=deck_id))
             except LedgerError as e:
@@ -824,6 +831,8 @@ def _register_routes(app: Flask) -> None:
                 WHERE l.owner_id = ? AND COALESCE(p.oracle_id, p.scryfall_id) = ?
                 GROUP BY s.printing_id, s.finish""", (_uid(), card_key))}
         return render_template("deck_slot.html", deck=deck, slot=slot, sid=sid, p=p, card_key=card_key,
+                               tags=decks.tags(conn, deck_id).get(card_key, []),
+                               deck_tags=decks.tag_names(conn, deck_id),
                                printings=queries.card_printings(conn, card_key), counts=counts,
                                copies=queries.card_stock(conn, card_key, _uid()))
 
