@@ -171,7 +171,7 @@ def test_deck_stats_ignore_the_filter(client, burn):
     url = f"/decks/{burn}"
     full, filtered = client.get(url).data, client.get(f"{url}?type=Creature").data
     assert stats(full) == stats(filtered) and b"For the whole deck" in filtered
-    assert full.split(b"<b>Status:")[1][:60] == filtered.split(b"<b>Status:")[1][:60]
+    assert full.split(b'<p class="status">')[1][:60] == filtered.split(b'<p class="status">')[1][:60]
 
 
 def test_shared_deck_filters_without_status(client, app, conn, burn):

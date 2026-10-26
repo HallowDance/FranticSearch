@@ -115,3 +115,4 @@ form.filters input[type=checkbox] { margin: 0 1px 0 4px; }
   .deckside h2:first-child { margin-top: 16px; }
   .deckside textarea { width: 100%; }
 }
+div.actions { margin: 0 0 6px; line-height: 2; }
