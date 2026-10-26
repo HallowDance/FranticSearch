@@ -765,12 +765,11 @@ def _register_routes(app: Flask) -> None:
             abort(404)
         if loc["owner_id"] != _uid():
             return _render_shared(loc)
-        imp = conn.execute("SELECT id FROM imports WHERE deck_id = ?", (deck_id,)).fetchone()
         ctx = _deck_context(deck)
         return render_template(
             "deck.html", **ctx, loc=loc, readonly=False,
             paste=session.pop("paste") if (session.get("paste") or {}).get("deck") == deck_id else None,
-            import_id=imp["id"] if imp else None, status=deckplan.status(ctx["st"]),
+            status=deckplan.status(ctx["st"]),
             stats=deckplan.analysis(ctx["st"], deck),
             contents=deckplan.deck_stock(conn, deck["location_id"]),
             history=queries.history(conn, _uid(), location_id=deck["location_id"])[:20],
@@ -781,8 +780,10 @@ def _register_routes(app: Flask) -> None:
         """Deck settings, sharing, export and delete: kept off the deck page."""
         conn = g.db
         deck = _my_deck(deck_id)
+        imp = conn.execute("SELECT id FROM imports WHERE deck_id = ?", (deck_id,)).fetchone()
         return render_template(
             "deck_manage.html", deck=deck, loc=locations.get(conn, deck["location_id"]),
+            import_id=imp["id"] if imp else None,
             st=deckplan.state(conn, deck), deletable=not locations.has_history(conn, deck["location_id"]),
         )
 

@@ -6,21 +6,19 @@
 <p class="muted">{{ owner.username }}'s deck, shared read-only.</p>
 {% else %}
 {% if deck.notes %}<p>{{ deck.notes }}</p>{% endif %}
-<p><b>Status: {{ status }}</b> &middot; {{ st.in_deck }} of {{ st.wanted }} cards in the deck{% if st.proxies %}, {{ st.proxies }} prox{{ 'y' if st.proxies == 1 else 'ies' }}{% endif %}.
-{% if st.short %}<a href="{{ url_for('deck_pull', deck_id=deck.id) }}">Pull list</a>{% endif %}
-{% if st.excess_total %}<a href="{{ url_for('deck_return', deck_id=deck.id) }}">Return list</a>{% endif %}
-&middot; <a href="{{ url_for('add', deck=deck.id) }}">Add cards</a> &middot; <a href="#paste">paste a list</a>
-&middot; <a href="#contents">physically in the deck</a>
-&middot; <a href="{{ url_for('deck_manage', deck_id=deck.id) }}">Manage deck</a> <span class="muted">(settings, sharing, export)</span>
-{% if import_id %}&middot; imported in <a href="{{ url_for('import_view', import_id=import_id) }}">import #{{ import_id }}</a>{% endif %}</p>
-{% if st.short %}
-<form class="inline" method="post" action="{{ url_for('deck_proxy_short', deck_id=deck.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
-<button title="Set proxies to cover every card that's still short">Proxy all {{ st.short }} short</button></form>
-<span class="muted">or see what to <a href="{{ url_for('buy_list') }}">buy</a></span>
-{% endif %}
-{% if st.short %}
-<form method="post" action="{{ url_for('deck_build', deck_id=deck.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
-<button>Mark as built</button> <span class="muted">you own this deck: add its {{ st.short }} short card{{ '' if st.short == 1 else 's' }} to your collection as new copies, in the deck (not proxies or the maybeboard). To use copies you already have elsewhere, use the pull list first.</span></form>
+{# Status line, then (only when there's work to do) one line of actions. #}
+<p class="status"><b>{{ status|capitalize }}</b> &middot; {{ st.in_deck }}/{{ st.wanted }} in the deck{% if st.proxies %}, {{ st.proxies }} prox{{ 'y' if st.proxies == 1 else 'ies' }}{% endif %}
+&middot; <a href="{{ url_for('add', deck=deck.id) }}">Add cards</a> &middot; <a href="#paste">Paste a list</a>
+&middot; <a href="{{ url_for('deck_manage', deck_id=deck.id) }}" title="settings, sharing, export, delete">Manage deck</a></p>
+{# A div, not a p: the inline forms would close a p. #}
+{% if st.short or st.excess_total %}<div class="actions">
+{% if st.short %}<a href="{{ url_for('deck_pull', deck_id=deck.id) }}">Pull list</a>
+<form class="inline" method="post" action="{{ url_for('deck_proxy_short', deck_id=deck.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><button title="Set proxies to cover every card that's still short">Proxy all {{ st.short }} short</button></form>
+<form class="inline" method="post" action="{{ url_for('deck_build', deck_id=deck.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><button title="Add the short cards to your collection as new copies, in the deck">Mark as built</button></form>
+<a href="{{ url_for('buy_list') }}">Buy list</a>{% endif %}
+{% if st.short and st.excess_total %}&middot;{% endif %}
+{% if st.excess_total %}<a href="{{ url_for('deck_return', deck_id=deck.id) }}">Return list</a>{% endif %}</div>
+{% if st.short %}<p class="muted viewswitch">Mark as built: you own this deck, so its short cards become new copies in it. Pull first to use copies you already have.</p>{% endif %}
 {% endif %}
 {% if stats.warnings %}<div class="flash error">{% for w in stats.warnings %}{{ w }}<br>{% endfor %}</div>{% endif %}
 {% endif %}
