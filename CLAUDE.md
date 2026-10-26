@@ -6,6 +6,7 @@ FranticSearch: self-hosted MTG collection & deck manager where **every physical 
 
 - Stick to PLAN.md. When something isn't covered by the plan, **ask the user** instead of assuming; record answered decisions in PLAN.md.
 - One feature branch per phase or feature, then a PR. The user asks for "open and merge" explicitly; don't merge on your own.
+  - **Minor edits** (small UI/layout tweaks, wording, docs, small fixes) go straight to `main`: commit and push, no branch or PR (decided 2026-10-26). Still run `pytest` and restart the server.
   - Use **merge commits** (`gh pr merge --merge`), never squash: branches are sometimes stacked.
   - For a stacked branch, merge the lower PR first, then open the next against `main`.
 - After code changes, run `pytest` and check the change against the real DB too, e.g. read-only GETs via `app.test_client()` with `session["uid"] = 1`. Then restart the server (`systemctl --user restart franticsearch`): it caches templates.
