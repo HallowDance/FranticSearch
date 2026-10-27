@@ -68,12 +68,13 @@ a.tile .qty { position: absolute; top: 6px; left: 6px; background: rgba(0, 0, 0,
   font: bold 12px Verdana, sans-serif; padding: 0 5px; border-radius: 3px; }
 a.tile .cap { display: block; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 h3 { font: bold 13px Verdana, sans-serif; margin: 10px 0 4px; }
-@media (max-width: 640px) { a.tile { width: calc(33.3% - 6px); } }
+/* Phones: one card per line. */
+@media (max-width: 640px) { a.tile { width: 100%; max-width: 488px; margin: 0 auto; } }
 /* Deck edit mode: a tile with its -1 / +1 / Remove buttons underneath. */
 .tilebox { width: 146px; } .tilebox a.tile { width: 100%; }
 .tilebtns { text-align: center; margin-top: 2px; white-space: nowrap; }
 .tilebtns button { font-size: 11px; padding: 0 5px; }
-@media (max-width: 640px) { .tilebox { width: calc(33.3% - 6px); } }
+@media (max-width: 640px) { .tilebox { width: 100%; max-width: 488px; margin: 0 auto; } .tilebtns button { font-size: 13px; padding: 2px 10px; } }
 /* Card image on hover (no JS). Hidden images with loading=lazy are only fetched once shown.
    .cardlink is an <a>, or a <span> where there is no card page to link to (anonymous share links). */
 .cardlink { position: relative; }
