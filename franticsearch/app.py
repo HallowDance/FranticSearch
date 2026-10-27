@@ -97,10 +97,14 @@ def create_app(config: dict | None = None) -> Flask:
         if conn is not None:
             conn.close()
 
+    # Cache-buster for style.css, so phones pick up CSS changes after a restart.
+    css_version = int(os.path.getmtime(os.path.join(app.static_folder, "style.css")))
+
     @app.context_processor
     def _globals() -> dict:
         return {
             "version": __version__,
+            "css_version": css_version,
             "FINISHES": FINISHES,
             "CONDITIONS": CONDITIONS,
             "CONDITION_NAMES": CONDITION_NAMES,

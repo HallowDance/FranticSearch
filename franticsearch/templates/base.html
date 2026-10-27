@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}{% endblock %} - FranticSearch</title>
-<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css', v=css_version) }}">
 </head>
 <body>
 <div id="top"><a class="logo" href="{{ url_for('index') }}">FranticSearch<small>v{{ version }} &middot; where are my cards?</small></a></div>
