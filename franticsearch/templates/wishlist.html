@@ -1,0 +1,50 @@
+{% extends "base.html" %}{% import "macros.html" as m with context %}
+{% block title %}{{ owner.username ~ "'s wishlist" if readonly else 'Wishlist' }}{% endblock %}
+{% block body %}
+{% macro printing(l) %}{% if l.set_code %}{{ l.set_code|upper }} #{{ l.collector_number }}{% else %}<span class="muted">any</span>{% endif %}{% if l.finish %} <span class="tag">{{ l.finish }}</span>{% endif %}{% endmacro %}
+{% macro card_href(l) %}{% if readonly %}{% if not anonymous %}{{ url_for('card', card_key=l.card_key, printing=l.printing_id) }}{% endif %}{% else %}{{ url_for('wishlist_line', wish_id=l.id) }}{% endif %}{% endmacro %}
+{% if readonly %}
+<h1>{{ owner.username }}'s wishlist</h1>
+<p class="muted">Shared read-only.</p>
+{% else %}
+<h1>Wishlist</h1>
+<p class="muted">Cards you want, apart from your decks (what decks are short is on their <a href="{{ url_for('buy_list') }}">buy list</a>).
+Add cards from a card's page or paste a list below; <i>got it</i> adds the copies to your collection and takes them off the list.</p>
+{% endif %}
+{% if lines %}
+<p><b>{{ lines|sum(attribute='qty') }}</b> card{{ '' if lines|sum(attribute='qty') == 1 else 's' }}, {{ lines|length }} line{{ '' if lines|length == 1 else 's' }}.</p>
+{{ m.view_switch() }}
+{% if view == 'images' %}
+<div class="cardgrid">{% for l in lines %}{{ m.card_tile(card_href(l)|trim, l.name, l.image, l.qty, l.name if not l.set_code else l.set_code|upper ~ ' #' ~ l.collector_number ~ (' ' ~ l.finish if l.finish else '')) }}{% endfor %}</div>
+{% else %}
+<table class="grid">
+{% set notes = lines|selectattr('note')|list %}
+<tr><th>Qty</th><th>Card</th><th>Printing</th>{% if not readonly %}<th title="matching copies you already have, decks included">Have</th>{% endif %}{% if notes %}<th>Note</th>{% endif %}{% if not readonly %}<th></th>{% endif %}</tr>
+{% for l in lines %}
+<tr><td class="num">{{ l.qty }}</td>
+<td>{{ m.card_link((url_for('card', card_key=l.card_key, printing=l.printing_id) if not anonymous else none), l.name, l.image) }}</td>
+<td>{{ printing(l) }}</td>
+{% if not readonly %}<td class="num">{{ l.owned or '' }}</td>{% endif %}
+{% if notes %}<td>{{ l.note }}</td>{% endif %}
+{% if not readonly %}<td><a href="{{ url_for('wishlist_line', wish_id=l.id) }}" title="got it, edit or remove">Got it</a></td>{% endif %}</tr>
+{% endfor %}
+</table>
+{% endif %}
+{% if not readonly %}
+<h2>Export</h2>
+<p>Copy as:
+{% for k, v in EXPORT_FORMATS.items() %}{% if k == fmt %}<b>[{{ v }}]</b>{% else %}<a href="{{ url_for('wishlist_view', format=k) }}">{{ v }}</a>{% endif %}{{ ' · ' if not loop.last }}{% endfor %}
+&middot; <a href="{{ url_for('wishlist_export', format=fmt, download=1) }}">download</a></p>
+<textarea rows="6" cols="60" readonly aria-label="wishlist as {{ EXPORT_FORMATS[fmt] }}">{{ text }}</textarea>
+{% endif %}
+{% else %}<p>{{ 'Nothing on it.' if readonly else 'Your wishlist is empty.' }}</p>{% endif %}
+{% if not readonly %}
+<h2 id="paste">Add cards from a list</h2>
+<form method="post" action="{{ url_for('wishlist_paste') }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+<textarea name="text" rows="5" cols="50" placeholder="2 Sol Ring&#10;1 Arcane Signet (VOC) 159 *F*"></textarea><br>
+<span class="muted">Without a set: any printing. With a set (and number): that printing; *F* / *E* = foil / etched.</span><br>
+<button>Add to wishlist</button>
+</form>
+{{ m.sharing(share, url_for('wishlist_visibility'), url_for('shared_wishlist_link', token=share.share_token, _external=True) if share.share_token else none) }}
+{% endif %}
+{% endblock %}

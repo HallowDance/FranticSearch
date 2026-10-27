@@ -175,6 +175,15 @@ Details:
 - **Phone layout pass** (checked with headless Chromium at 390 px on a copy of the live DB): row forms (location actions, quick add, alternatives, return destinations) stay on one line so rows stay short and the table scrolls sideways inside its box; the page itself never scrolls sideways. A deck's Qty links to its edit page, so editing works without scrolling the table. Textareas fill the width.
 - The System page lists the backups.
 
+## Wishlist (decided 2026-10-27)
+
+Cards a user wants, **separate from decks and their buy list** (the buy list stays "what my decks are short"; the wishlist neither feeds it nor reads from it).
+- **One wishlist per user** (`wishlist.py`, migration 009: `wishes`, `wishlists`). A line wants N of a card in **any printing** (default) or a **specific printing**; the finish is optional ("any finish"). Identical lines (card + printing + finish) are merged.
+- **Adding**: a form on the card page (printing "any" or one, finish, qty, note), or a pasted list on the Wishlist page: `2 Sol Ring` = any printing, `1 Sol Ring (C21) 263 *F*` = that printing and finish. A name without a set means the card of its best printing (as the importer's default), so not e.g. its art-series card.
+- **Wishlist page** `/wishlist` (nav link): qty, card, printing ("any"), *Have* (matching copies you own anywhere, decks included; informational, nothing is subtracted), note; Text | Images view; exports in the same formats as the buy list (any-printing lines are written by name only).
+- **Got it** (on the line's page): pick printing, finish, qty, condition / language and a location (default Unsorted). Adds the copies (`acquire`, note "wishlist") and lowers or removes the line in one transaction. Undo removes the copies but doesn't put the line back.
+- **Sharing as for locations**: private (default) / users (listed on People, `/people/<id>/wishlist`) / link (`/w/<token>`, no login, no card links). Read-only views show qty, card, printing and note, never *Have*. Card pages show "Wanted by" for other users' shared wishlists that want the card.
+
 ## Users & sharing (phase 2b)
 
 Decided 2026-10-18: a few people on one instance, each with a **separate collection**; locations (incl. decks) can be shared.
@@ -310,6 +319,9 @@ Operations:
 
 Considered and dropped (2026-10-19):
 - A proxy **PDF** (card images 9 per page for printing): the user decided it isn't needed; the text proxy list for proxy printing sites stays.
+
+Features added after the phases:
+- **Wishlist** (2026-10-27, § Wishlist).
 
 Smaller ideas noticed while building (not decided):
 - Nested user locations (Shelf / Box / Binder); § Decks in the UI leaves room for it.

@@ -1,7 +1,7 @@
 {% extends "base.html" %}{% block title %}People{% endblock %}
 {% block body %}
 <h1>People</h1>
-<p class="muted">Locations and decks other users have shared. Share your own from a location's or deck's page.</p>
+<p class="muted">Locations, decks and wishlists other users have shared. Share your own from a location's or deck's page, or from your wishlist.</p>
 {% if shared %}
 <table class="grid">
 <tr><th>User</th><th>Shared</th><th>Type</th><th>Copies</th></tr>
@@ -11,5 +11,12 @@
 <td>{{ l.type }}</td><td class="num">{{ l.cards }}</td></tr>
 {% endfor %}
 </table>
-{% else %}<p>Nobody has shared anything yet.</p>{% endif %}
+{% elif not wishlists %}<p>Nobody has shared anything yet.</p>{% endif %}
+{% if wishlists %}
+<h2>Wishlists</h2>
+<table class="grid">
+<tr><th>User</th><th>Cards wanted</th></tr>
+{% for w in wishlists %}<tr><td><a href="{{ url_for('shared_wishlist', user_id=w.owner_id) }}">{{ w.owner_name }}'s wishlist</a></td><td class="num">{{ w.cards }}</td></tr>{% endfor %}
+</table>
+{% endif %}
 {% endblock %}
