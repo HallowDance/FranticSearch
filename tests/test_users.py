@@ -7,7 +7,7 @@ import sys
 import pytest
 from conftest import ALICE, PASSWORD, SOL_C21, SOL_ORACLE, login_as
 
-from franticsearch import importer, ledger, locations, users
+from franticsearch import importer, ledger, locations, users, wishlist
 from franticsearch.app import create_app
 from franticsearch.ledger import LedgerError, StockKey
 
@@ -32,7 +32,7 @@ def alices(conn):
     uid = importer.unresolved(conn, iid)[0]["id"]
     deck_loc = conn.execute("SELECT location_id FROM decks WHERE id = ?", (imp["deck_id"],)).fetchone()[0]
     return {"binder": binder, "batch": batch, "import": iid, "deck": imp["deck_id"],
-            "deck_loc": deck_loc, "unresolved": uid}
+            "deck_loc": deck_loc, "unresolved": uid, "wish": wishlist.add(conn, SOL_ORACLE, 1, owner=ALICE)}
 
 
 # --------------------------------------------------------------------------- accounts & login
@@ -143,7 +143,7 @@ def test_other_users_ids_are_not_found(bob_client, alices):
             f"/decks/{a['deck']}/slot?slot={sid}", f"/decks/{a['deck']}/pull",
             f"/decks/{a['deck']}/return", f"/add?deck={a['deck']}&q=sol",
             f"/decks/{a['deck']}/export?format=moxfield", f"/decks/{a['deck']}/export?what=proxies",
-            f"/decks/{a['deck']}/manage"]
+            f"/decks/{a['deck']}/manage", f"/wishlist/{a['wish']}", f"/people/{ALICE}/wishlist"]
     for url in gets:
         assert bob_client.get(url).status_code == 404, url
     posts = [
@@ -175,6 +175,9 @@ def test_other_users_ids_are_not_found(bob_client, alices):
         (f"/decks/{a['deck']}/slot/step", {"slot": sid, "delta": "1"}),
         (f"/decks/{a['deck']}/slot/remove", {"slot": sid}),
         (f"/decks/{a['deck']}/slot/restore", {"printing_id": SOL_C21, "board": "main", "qty": "1", "proxy": "0"}),
+        (f"/wishlist/{a['wish']}/edit", {"qty": "3"}),
+        (f"/wishlist/{a['wish']}/remove", {}),
+        (f"/wishlist/{a['wish']}/got", {**key, "location_id": ""}),
     ]
     for url, data in posts:
         assert bob_client.post(url, data=data).status_code == 404, url
@@ -187,15 +190,17 @@ def test_alice_data_untouched_after_bobs_attempts(bob_client, conn, alices):
     assert conn.execute("SELECT name FROM decks WHERE id = ?", (alices["deck"],)).fetchone()[0] == "Alice deck"
     assert [tuple(r) for r in conn.execute("SELECT printing_id, qty_wanted FROM deck_slots")] == [(SOL_C21, 1)]
     assert ledger.qty_at(conn, alices["deck_loc"], StockKey(SOL_C21)) == 0
+    assert wishlist.get(conn, alices["wish"])["qty"] == 1
     assert ledger.check(conn) == []
 
 
 def test_lists_and_totals_are_per_user(bob_client, conn, alices, bob):
     for url in ["/", "/collection", "/locations", "/decks", "/import", "/history", f"/card/{SOL_ORACLE}",
-                "/buy", "/buy/export?format=text", "/pull"]:
+                "/buy", "/buy/export?format=text", "/pull", "/wishlist", "/wishlist/export?format=text"]:
         page = bob_client.get(url).data
         assert b"Alice deck" not in page and b"Binder</a>" not in page, url
     assert b"Sol Ring" not in bob_client.get("/collection").data
+    assert b"Your wishlist is empty" in bob_client.get("/wishlist").data
     assert b"You don't own any copies" in bob_client.get(f"/card/{SOL_ORACLE}").data
 
 

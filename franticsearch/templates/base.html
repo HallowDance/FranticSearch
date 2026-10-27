@@ -15,6 +15,7 @@
 <a href="{{ url_for('collection') }}" class="{{ 'on' if ep in ('collection', 'card') }}">Collection</a>
 <a href="{{ url_for('add') }}" class="{{ 'on' if ep == 'add' }}">Search</a>
 <a href="{{ url_for('decks_list') }}" class="{{ 'on' if ep in ('decks_list', 'deck_view', 'deck_manage', 'deck_slot', 'deck_pull', 'deck_return', 'pull_all', 'buy_list') }}">Decks</a>
+<a href="{{ url_for('wishlist_view') }}" class="{{ 'on' if ep and ep.startswith('wishlist') }}">Wishlist</a>
 <a href="{{ url_for('locations_list') }}" class="{{ 'on' if ep in ('locations_list', 'location_view') }}">Locations</a>
 <a href="{{ url_for('import_index') }}" class="{{ 'on' if ep and ep.startswith('import') }}">Import</a>
 <a href="{{ url_for('history') }}" class="{{ 'on' if ep == 'history' }}">History</a>
@@ -25,7 +26,7 @@
 <span class="whoami"><a href="{{ url_for('account') }}" class="{{ 'on' if ep == 'account' }}">{{ user.username }}</a>
 <form class="inline" method="post" action="{{ url_for('logout') }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><button>Log out</button></form></span>
 {% else %}
-<span class="muted">{% if ep == 'shared_link' %}A shared list{% else %}Please log in{% endif %}</span>
+<span class="muted">{% if ep in ('shared_link', 'shared_wishlist_link') %}A shared list{% else %}Please log in{% endif %}</span>
 {% endif %}
 </div>
 <div id="main">

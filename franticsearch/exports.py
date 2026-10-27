@@ -1,7 +1,8 @@
 """Card lists as text for other tools (PLAN.md § Core workflows 3, phase 5).
 
 An item is a mapping with ``qty``, ``name``, ``set_code``, ``collector_number``,
-``finish`` and optionally ``board``. Formats:
+``finish`` and optionally ``board``. Without ``set_code`` (a wishlist line for any
+printing) only the name is written. Formats:
 
 - ``text``: ``2 Sol Ring``
 - ``moxfield``: ``2 Sol Ring (C21) 263 *F*``; deck exports get board headers, which
@@ -21,6 +22,8 @@ _SECTION = {"commander": "Commander", "main": "Deck", "side": "Sideboard", "mayb
 
 
 def _line(item, fmt: str) -> str:
+    if not item["set_code"]:  # any printing (wishlist)
+        return f"{item['qty']} {item['name']}" + (_FLAG.get(item["finish"], "") if fmt == "moxfield" else "")
     if fmt == "moxfield":
         return (f"{item['qty']} {item['name']} ({item['set_code'].upper()}) {item['collector_number']}"
                 + _FLAG.get(item["finish"], ""))

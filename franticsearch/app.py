@@ -18,13 +18,16 @@ from flask import (
 from markupsafe import Markup, escape
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import __version__, backup, db, deckplan, decks, exports, importer, ledger, locations, queries, scryfall, users
+from . import (
+    __version__, backup, db, deckplan, decks, exports, importer, ledger, locations, queries, scryfall, users,
+    wishlist,
+)
 from .ledger import CONDITION_NAMES, CONDITIONS, FINISHES, LANGUAGES, LedgerError, StockKey
 
 log = logging.getLogger(__name__)
 
 # Reachable without logging in (share links are read-only and unguessable).
-PUBLIC_ENDPOINTS = {"login", "static", "shared_link"}
+PUBLIC_ENDPOINTS = {"login", "static", "shared_link", "shared_wishlist_link"}
 
 # How card lists are shown: a text table (with actions) or a grid of card images.
 VIEWS = ("text", "images")
@@ -271,6 +274,13 @@ def _my_unresolved(uid: int) -> tuple[sqlite3.Row, sqlite3.Row]:
     return u, _my_import(u["import_id"])
 
 
+def _my_wish(wish_id: int) -> sqlite3.Row:
+    w = wishlist.get(g.db, wish_id)
+    if w is None or w["owner_id"] != _uid():
+        abort(404)
+    return w
+
+
 def _deck_context(deck: sqlite3.Row, readonly: bool = False) -> dict:
     """Slots filtered, grouped and sorted for the deck page (owner and shared views).
     Filters only narrow the card list: ``st`` and the curve cover the whole deck."""
@@ -395,6 +405,8 @@ def _register_routes(app: Flask) -> None:
             history=queries.history(conn, _uid(), card_key=card_key)[:20],
             others=queries.shared_stock(conn, card_key, _uid()),
             my_decks=decks.list_all(conn, _uid()),
+            my_wishes=[w for w in wishlist.lines(conn, _uid()) if w["card_key"] == card_key],
+            wanted_by=wishlist.wanted_by(conn, card_key, _uid()),
         )
 
     # ---- adding cards
@@ -1080,6 +1092,133 @@ def _register_routes(app: Flask) -> None:
               "ok" if n else "error")
         return redirect(url_for("deck_view", deck_id=deck_id))
 
+    # ---- wishlist (separate from decks and the buy list)
+
+    def _wishlist_page(owner: int, readonly: bool = False, anonymous: bool = False):
+        lines = wishlist.lines(g.db, owner)
+        fmt = request.args.get("format", "moxfield")
+        fmt = fmt if fmt in exports.FORMATS else "moxfield"
+        return render_template(
+            "wishlist.html", lines=lines, fmt=fmt, text="" if readonly else exports.render(lines, fmt), readonly=readonly,
+            anonymous=anonymous, owner=users.get(g.db, owner), share=wishlist.settings(g.db, owner),
+        )
+
+    @app.get("/wishlist")
+    def wishlist_view():
+        return _wishlist_page(_uid())
+
+    @app.get("/wishlist/export")
+    def wishlist_export():
+        fmt = _export_format()
+        return _text_download(exports.render(wishlist.lines(g.db, _uid()), fmt), "wishlist", fmt)
+
+    @app.post("/wishlist/add")
+    def wishlist_add():
+        f = request.form
+        try:
+            wishlist.add(g.db, f.get("card_key", ""), _form_qty(), f.get("printing_id"), f.get("finish"),
+                         f.get("note", ""), owner=_uid())
+            flash("Added to your wishlist.", "ok")
+        except LedgerError as e:
+            flash(str(e), "error")
+        return redirect(_back(url_for("wishlist_view")))
+
+    @app.post("/wishlist/paste")
+    def wishlist_paste():
+        try:
+            added, left = wishlist.paste(g.db, request.form.get("text", ""), owner=_uid())
+        except LedgerError as e:
+            flash(str(e), "error")
+            return redirect(url_for("wishlist_view"))
+        if added:
+            flash(f"Added {added} card{'' if added == 1 else 's'} to your wishlist.", "ok")
+        for raw, problem in left[:20]:
+            flash(f"Skipped {raw!r}: {problem}", "error")
+        if not added and not left:
+            flash("Nothing to add.", "error")
+        return redirect(url_for("wishlist_view"))
+
+    @app.get("/wishlist/<int:wish_id>")
+    def wishlist_line(wish_id: int):
+        w = _my_wish(wish_id)
+        conn = g.db
+        printings = queries.card_printings(conn, w["card_key"])
+        default = importer.default_key(conn, printings, w["finish"], owner=_uid())
+        got_printing = w["printing_id"] or (default.printing_id if default else printings[0]["scryfall_id"])
+        if w["finish"]:
+            got_finish = w["finish"]
+        elif default and default.printing_id == got_printing:
+            got_finish = default.finish
+        else:
+            got_finish = importer._default_finish(next(p for p in printings if p["scryfall_id"] == got_printing))
+        return render_template(
+            "wish.html", w=wishlist.lines(conn, _uid(), wish_id)[0], printings=printings,
+            got_printing=got_printing, got_finish=got_finish, locs=_manual_locations(conn),
+            unsorted=UNSORTED,
+        )
+
+    @app.post("/wishlist/<int:wish_id>/edit")
+    def wishlist_edit(wish_id: int):
+        _my_wish(wish_id)
+        f = request.form
+        try:
+            qty = _form_qty()
+            wishlist.update(g.db, wish_id, qty, f.get("printing_id"), f.get("finish"), f.get("note", ""))
+            flash("Removed from your wishlist." if qty == 0 else "Wishlist line saved.", "ok")
+        except LedgerError as e:
+            flash(str(e), "error")
+            return redirect(url_for("wishlist_line", wish_id=wish_id))
+        return redirect(url_for("wishlist_view"))
+
+    @app.post("/wishlist/<int:wish_id>/remove")
+    def wishlist_remove(wish_id: int):
+        _my_wish(wish_id)
+        wishlist.remove(g.db, wish_id)
+        flash("Removed from your wishlist.", "ok")
+        return redirect(_back(url_for("wishlist_view")))
+
+    @app.post("/wishlist/<int:wish_id>/got")
+    def wishlist_got(wish_id: int):
+        _my_wish(wish_id)
+        conn = g.db
+        try:
+            loc = (_my_location_arg("location_id") if request.form.get("location_id")
+                   else locations.unsorted(conn, owner=_uid()))
+            qty = _form_qty()
+            batch = wishlist.got(conn, wish_id, loc, _form_key(), qty)
+            _remember_location(loc)
+            _done(f"Added {qty} cop{'y' if qty == 1 else 'ies'} to {locations.get(conn, loc)['name']} "
+                  "and took them off your wishlist (undo removes the copies, not the wish).", batch)
+        except LedgerError as e:
+            flash(str(e), "error")
+            return redirect(url_for("wishlist_line", wish_id=wish_id))
+        return redirect(url_for("wishlist_view"))
+
+    @app.post("/wishlist/visibility")
+    def wishlist_visibility():
+        try:
+            wishlist.set_visibility(g.db, _uid(), request.form.get("visibility", ""),
+                                    new_link=request.form.get("new_link") == "1")
+            flash("Sharing updated.", "ok")
+        except LedgerError as e:
+            flash(str(e), "error")
+        return redirect(url_for("wishlist_view"))
+
+    @app.get("/people/<int:user_id>/wishlist")
+    def shared_wishlist(user_id: int):
+        if user_id == _uid():
+            return redirect(url_for("wishlist_view"))
+        if not wishlist.can_view(g.db, user_id, _uid()):
+            abort(404)
+        return _wishlist_page(user_id, readonly=True)
+
+    @app.get("/w/<token>")
+    def shared_wishlist_link(token: str):
+        owner = wishlist.by_token(g.db, token)
+        if owner is None:
+            abort(404)
+        return _wishlist_page(owner, readonly=True, anonymous=g.user is None)
+
     def _render_shared(loc: sqlite3.Row, anonymous: bool = False):
         """Read-only view of a shared location (or deck) for other users / share links."""
         conn = g.db
@@ -1101,7 +1240,8 @@ def _register_routes(app: Flask) -> None:
 
     @app.get("/people")
     def people():
-        return render_template("people.html", shared=locations.shared(g.db, _uid()))
+        return render_template("people.html", shared=locations.shared(g.db, _uid()),
+                               wishlists=wishlist.shared(g.db, _uid()))
 
     @app.post("/locations/<int:location_id>/visibility")
     def location_visibility(location_id: int):

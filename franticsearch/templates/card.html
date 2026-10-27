@@ -78,6 +78,24 @@ Language <select name="lang">{% for code, lname in LANGUAGES.items() %}<option v
 </form>
 {% endif %}
 
+<h2 id="wishlist">Wishlist</h2>
+{% if my_wishes %}<p>On your <a href="{{ url_for('wishlist_view') }}">wishlist</a>:
+{% for w in my_wishes %}<a href="{{ url_for('wishlist_line', wish_id=w.id) }}">{{ w.qty }}&times; {% if w.set_code %}{{ w.set_code|upper }} #{{ w.collector_number }}{% else %}any printing{% endif %}{% if w.finish %} {{ w.finish }}{% endif %}</a>{{ ', ' if not loop.last }}{% endfor %}</p>{% endif %}
+<form method="post" action="{{ url_for('wishlist_add') }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+<input type="hidden" name="card_key" value="{{ card_key }}">
+<input type="hidden" name="next" value="{{ request.script_root ~ request.full_path }}">
+<table class="kv">
+<tr><th>Printing</th><td><select name="printing_id"><option value="">Any printing</option>
+{% for p in printings %}<option value="{{ p.scryfall_id }}">{{ p.set_code|upper }} #{{ p.collector_number }} &mdash; {{ p.set_name }} ({{ (p.released_at or '')[:4] }}) [{{ (p.finishes|fromjson)|join('/') }}]{% if p.lang != 'en' %} {{ p.lang }}{% endif %}</option>{% endfor %}
+</select></td></tr>
+<tr><th>Finish</th><td><select name="finish"><option value="">Any finish</option>{% for fi in FINISHES %}<option>{{ fi }}</option>{% endfor %}</select></td></tr>
+<tr><th>Quantity</th><td><input type="number" name="qty" value="1" min="1"></td></tr>
+<tr><th>Note</th><td><input name="note" size="40" maxlength="200" placeholder="optional"></td></tr>
+<tr><th></th><td><button>Add to wishlist</button></td></tr>
+</table>
+</form>
+{% if wanted_by %}<p>Wanted by: {% for w in wanted_by %}<a href="{{ url_for('shared_wishlist', user_id=w.owner_id) }}">{{ w.owner_name }}</a> ({{ w.qty }}&times; {% if w.set_code %}{{ w.set_code|upper }} #{{ w.collector_number }}{% else %}any printing{% endif %}{% if w.finish %} {{ w.finish }}{% endif %}){{ ', ' if not loop.last }}{% endfor %}</p>{% endif %}
+
 {% if history %}
 <h2>Recent history</h2>
 <table class="grid">{{ m.movement_head() }}{% for h in history %}{{ m.movement_row(h) }}{% endfor %}</table>

@@ -18,7 +18,7 @@ FranticSearch: self-hosted MTG collection & deck manager where **every physical 
 
 ```sh
 python3 -m venv .venv && . .venv/bin/activate && pip install -e ".[dev,serve]"
-pytest                                   # full suite, ~12 s, no network (147 tests)
+pytest                                   # full suite, ~20 s, no network (159 tests)
 python -m franticsearch serve            # dev server http://127.0.0.1:6602 (auto-syncs Scryfall); live uses gunicorn
 python -m franticsearch serve --no-auto-sync
 python -m franticsearch migrate          # apply pending migrations (serve also does this)
@@ -39,13 +39,14 @@ Env: `FS_DB` (default `data/franticsearch.db`), `FS_AUTO_SYNC` (default `1`), `F
 
 | File | Role |
 |---|---|
-| `franticsearch/migrations/NNN_*.sql` | Schema; latest is `008_deck_tags.sql` (006 = `movements.owner_id`, set by `ledger._record`; 007 = `users.disabled`; 008 = `deck_tags`). Append a new numbered file for every change; never edit applied ones. The runner disables FKs per migration (so tables can be rebuilt) and runs `foreign_key_check` before COMMIT. Version in `PRAGMA user_version`. |
+| `franticsearch/migrations/NNN_*.sql` | Schema; latest is `009_wishlist.sql` (006 = `movements.owner_id`, set by `ledger._record`; 007 = `users.disabled`; 008 = `deck_tags`; 009 = `wishes` + `wishlists`). Append a new numbered file for every change; never edit applied ones. The runner disables FKs per migration (so tables can be rebuilt) and runs `foreign_key_check` before COMMIT. Version in `PRAGMA user_version`. |
 | `db.py` | Connections (WAL, FKs on, autocommit), **re-entrant** `transaction()` (joins an open one, so domain functions compose atomically), migration runner, `meta` helpers |
 | `ledger.py` | **The only code that changes `stock`.** acquire(_many) / move(_many) / transfer_many (several from→to pairs, one batch) / adjust / sell / undo write stock + `movements` in one transaction. Refuses moves between two users' locations. `check()` verifies the invariant. Also `LANGUAGES`, `CONDITIONS`, `StockKey`, `validate_key`. |
 | `users.py` | Accounts: create (first admin adopts ownerless locations/imports/movements), authenticate (constant-ish time; refuses disabled accounts), set password, `generate_password()`, `set_disabled()` (never the last enabled admin) |
 | `locations.py` | Location CRUD (owner, names unique per owner), archive, visibility (`private` < `users` < `link`) + share tokens, `can_view`, `shared()` for the People page, `unsorted()` (the owner's "Unsorted" box, created on use) |
 | `decks.py` | Deck + its same-named deck location (`update` renames both), `add_slot`, `edit_slot` (qty / proxy / board / printing / finish; merges, qty 0 removes), `retarget`, slot ids `printing\|finish\|cond\|lang\|board`, `slots(counts=True)` (in-deck / free / where / any-printing-outside-this-deck subqueries, scoped to the deck owner; `counts=False` skips them), `grouped()` by card type, tags per card in a deck (`set_tags`, `with_tags`, `grouped_by_tag()`), `mana_curve()`, delete (only if the deck location has no history). `BOARDS`, `FORMATS`, `COMMANDER_FORMATS`. |
 | `deckplan.py` | Phases 4–5, computed never stored: `buy_list()`, `proxy_short()`, `state(counts=False)` (per-slot in_deck / short, excess lines; the deck page passes `counts=True`), `pull_plan()` / `confirm_pulls()` (one deck or all; free copies planned once), `return_plan()` / `confirm_returns()` (default = last pull source, else Unsorted), `mark_built()` (acquire what's short as new copies into the deck location; not pulls), `analysis()` (colours, legality, copy limits, size, commander identity). Confirm functions recompute the plan, so stale forms can't over-move. |
+| `wishlist.py` | Per-user wishlist, separate from decks / buy list (PLAN.md § Wishlist): lines = card + optional printing + optional finish (merged when identical), `lines()` (display printing, `owned`), `paste()`, `got()` (acquire + lower the line, one transaction), sharing like locations (`settings` / `set_visibility` / `by_token` / `can_view`, `shared()` for People, `wanted_by()` for card pages) |
 | `importer.py` | Moxfield deck text / collection CSV: parse → `resolve()` (set+cn → name+set → `default_key()` = owner's free copy, else newest released regular paper printing) → import (per-owner sha256 dedupe). Unresolved queue fix/dismiss. `paste_into()` (location) and `paste_into_deck()` (slots) for quick list entry. |
 | `cardtypes.py` | Type line → (supertypes, card types, subtypes) over all faces; cached, returns frozensets |
 | `queries.py` | Read-only queries. Collection / location / history / totals per owner; `shared_stock`; `StockFilter` (location filters, in Python) with subclasses `CollectionFilter` (+ location / kind / not in deck; `collection()` groups, sorts and pages in Python) and `DeckFilter` (+ board / status); `CardSearch` + `search()` (phase 3, SQL); whitelisted `order_by()` for `?sort=` |
@@ -54,15 +55,15 @@ Env: `FS_DB` (default `data/franticsearch.db`), `FS_AUTO_SYNC` (default `1`), `F
 | `logs.py` | `configure()`: one stderr handler for server + CLI (called by `__main__` and `wsgi`, not `create_app`); no timestamps under journald. Logged: logins (failed = WARNING, with IP), admin user actions, migrations applied, sync start/result/failure, 500 tracebacks |
 | `scryfall.py` | Bulk sync: gzipped JSONL from `jsonl_download_uri` (legacy JSON arrays via `ijson`). Upserts, never deletes printings. Stores `face_name`, `set_type`, `digital`, `promo` for default-printing choice. Skips unchanged rows. Failures are logged, recorded in `meta` and raised as `SyncFailed`. |
 | `app.py` + `templates/` + `static/style.css` | Flask, POST-redirect-GET, flash messages. `macros.html`: card links with hover image, tiles, sort headers, view switch, stock actions, filters, sharing box, `place` / `loc_link` (location names, "Decks / <name>"). Routes are grouped by area in `_register_routes`; redirects to `next` go through `safe_next()`; background syncs through `_sync_once()` (never raises, logs); deck routes live under `/decks/<id>/…` plus `/pull`, `/buy`, `/decks/add-card` (deck id in the form). |
-| `tests/` | pytest. `conftest.py`: `conn` fixture creates admin user `alice` (`ALICE` = 1) and imports `fixtures_default_cards.json` (SOL_C21 / SOL_CMM / DELVER / BOLT). `client` is logged in as alice with CSRF off; use `login_as(client, uid)` for others. `test_users.py` covers isolation; `test_decks.py` (phase 4), `test_shortfalls_backup.py` (phases 5–6), `test_filters.py`, `test_importer.py`, `test_web.py`, `test_ledger.py`, `test_db.py` (migrations), `test_scryfall.py`, `test_logs.py`. |
+| `tests/` | pytest. `conftest.py`: `conn` fixture creates admin user `alice` (`ALICE` = 1) and imports `fixtures_default_cards.json` (SOL_C21 / SOL_CMM / DELVER / BOLT). `client` is logged in as alice with CSRF off; use `login_as(client, uid)` for others. `test_users.py` covers isolation; `test_decks.py` (phase 4), `test_shortfalls_backup.py` (phases 5–6), `test_wishlist.py`, `test_filters.py`, `test_importer.py`, `test_web.py`, `test_ledger.py`, `test_db.py` (migrations), `test_scryfall.py`, `test_logs.py`. |
 
 Keep domain logic framework-free (unit-testable) and the Flask layer thin.
 
 ## Rules for new code (security & domain)
 
-- **Auth is one hook** (`_auth` in `app.py`'s `before_request`): login required except `PUBLIC_ENDPOINTS` (login, static, `shared_link`), plus CSRF on every POST.
+- **Auth is one hook** (`_auth` in `app.py`'s `before_request`): login required except `PUBLIC_ENDPOINTS` (login, static, `shared_link`, `shared_wishlist_link`), plus CSRF on every POST.
   - **Every `<form method="post">` needs** `<input type="hidden" name="csrf" value="{{ csrf_token() }}">`.
-- **Every route that takes an id must check ownership** → 404, using `_my_location`, `_my_location_arg` (for form fields), `_my_deck`, `_my_import` or `_my_unresolved`. Undo checks `ledger.batch_owners`.
+- **Every route that takes an id must check ownership** → 404, using `_my_location`, `_my_location_arg` (for form fields), `_my_deck`, `_my_import`, `_my_unresolved` or `_my_wish`. Undo checks `ledger.batch_owners`.
   - Add a case to `test_other_users_ids_are_not_found` for each new id-taking route.
 - Domain functions take `owner=` (keyword). Lists, totals, defaults and "free" counts are per user.
 - **Shared/read-only views must not leak private data**, e.g. a deck's "where (free)" names the owner's other locations, so it's hidden for others. Anonymous share-link views get no `/card/` links (`card_link(href=None)`).
@@ -90,7 +91,7 @@ Keep domain logic framework-free (unit-testable) and the Flask layer thin.
   - The service runs whatever is checked out in the repo, so the live site serves the current branch.
   - Lingering is off: the services start at login and stop at logout (`loginctl enable-linger` would keep them running without a session). They're down while the laptop sleeps; autossh reconnects after wake.
   - A 502 on the public URL means one of them is down: `systemctl --user status franticsearch franticsearch-tunnel`.
-- **Live DB**: `data/franticsearch.db` (gitignored, ~240 MB, nearly all of it the card cache), schema 8. Old manual backup from before migration 005: `data/franticsearch.db.bak-pre-2b-20261018`.
+- **Live DB**: `data/franticsearch.db` (gitignored, ~240 MB, nearly all of it the card cache), schema 9. Old manual backup from before migration 005: `data/franticsearch.db.bak-pre-2b-20261018`.
 - **Backups**: `franticsearch-backup.timer` runs `python -m franticsearch backup` nightly at 03:30 (catches up after sleep) into `data/backups/` (gitignored), keeping 14 (~57 MB each). The System page lists them. Check with `systemctl --user list-timers franticsearch-backup.timer`. Local only, no off-machine copy. First (manual) backup: 2026-10-19; the first timer run was due the night of 2026-10-20.
   - **To restore**: `systemctl --user stop franticsearch`, then `python -m franticsearch restore data/backups/<file>.db.gz` (saves the current DB as `<db>.pre-restore-<ts>`, migrates, runs the ledger check), then `systemctl --user start franticsearch`.
 - **Git**: `origin` is SSH (`git@github.com:HallowDance/FranticSearch.git`); `gh` is logged in as HallowDance.

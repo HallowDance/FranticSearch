@@ -1,0 +1,42 @@
+{% extends "base.html" %}{% import "macros.html" as m with context %}
+{% block title %}{{ w.name }} (wishlist){% endblock %}
+{% block body %}
+<p><a href="{{ url_for('wishlist_view') }}">&larr; Wishlist</a></p>
+{% if w.image %}<div class="cardbox"><img src="{{ w.image }}" alt="{{ w.name }}" loading="lazy"></div>{% endif %}
+<h1>{{ w.name }}</h1>
+<p>Wanted: <b>{{ w.qty }}</b>, {% if w.set_code %}{{ w.set_code|upper }} #{{ w.collector_number }}{% else %}any printing{% endif %}{% if w.finish %}, {{ w.finish }}{% endif %}.
+{% if w.owned %}You have {{ w.owned }} matching cop{{ 'y' if w.owned == 1 else 'ies' }} already.{% endif %}
+<a href="{{ url_for('card', card_key=w.card_key) }}">Card page</a></p>
+
+<h2>Got it</h2>
+<form method="post" action="{{ url_for('wishlist_got', wish_id=w.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+<table class="kv">
+<tr><th>Printing</th><td><select name="printing_id">
+{% for p in printings %}<option value="{{ p.scryfall_id }}" {{ 'selected' if p.scryfall_id == got_printing }}>{{ p.set_code|upper }} #{{ p.collector_number }} &mdash; {{ p.set_name }} ({{ (p.released_at or '')[:4] }}) [{{ (p.finishes|fromjson)|join('/') }}]{% if p.lang != 'en' %} {{ p.lang }}{% endif %}</option>{% endfor %}
+</select></td></tr>
+<tr><th>Finish</th><td><select name="finish">{% for fi in FINISHES %}<option {{ 'selected' if fi == got_finish }}>{{ fi }}</option>{% endfor %}</select></td></tr>
+<tr><th>Quantity</th><td><input type="number" name="qty" value="{{ w.qty }}" min="1"></td></tr>
+<tr><th>Into</th><td><select name="location_id"><option value="">{{ unsorted }}</option>{% for l in locs if l.name|lower != unsorted|lower %}<option value="{{ l.id }}">{{ l.name }}</option>{% endfor %}</select></td></tr>
+<tr><th></th><td><details><summary>Condition / language</summary>
+Condition <select name="condition">{% for c in CONDITIONS %}<option value="{{ c }}">{{ c }} &ndash; {{ CONDITION_NAMES[c] }}</option>{% endfor %}</select>
+Language <select name="lang">{% for code, lname in LANGUAGES.items() %}<option value="{{ code }}">{{ lname }}</option>{% endfor %}</select>
+</details></td></tr>
+<tr><th></th><td><button>Got it</button> <span class="muted">adds the copies to your collection and takes them off the wishlist</span></td></tr>
+</table>
+</form>
+
+<h2>Edit</h2>
+<form method="post" action="{{ url_for('wishlist_edit', wish_id=w.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+<table class="kv">
+<tr><th>Quantity</th><td><input type="number" name="qty" value="{{ w.qty }}" min="0"> <span class="muted">0 removes it</span></td></tr>
+<tr><th>Printing</th><td><select name="printing_id"><option value="">Any printing</option>
+{% for p in printings %}<option value="{{ p.scryfall_id }}" {{ 'selected' if p.scryfall_id == w.printing_id }}>{{ p.set_code|upper }} #{{ p.collector_number }} &mdash; {{ p.set_name }} ({{ (p.released_at or '')[:4] }}) [{{ (p.finishes|fromjson)|join('/') }}]{% if p.lang != 'en' %} {{ p.lang }}{% endif %}</option>{% endfor %}
+</select></td></tr>
+<tr><th>Finish</th><td><select name="finish"><option value="">Any finish</option>{% for fi in FINISHES %}<option {{ 'selected' if fi == w.finish }}>{{ fi }}</option>{% endfor %}</select></td></tr>
+<tr><th>Note</th><td><input name="note" size="40" maxlength="200" value="{{ w.note }}"></td></tr>
+<tr><th></th><td><button>Save</button></td></tr>
+</table>
+</form>
+<form method="post" action="{{ url_for('wishlist_remove', wish_id=w.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><button>Remove from wishlist</button></form>
+<div class="clear"></div>
+{% endblock %}
