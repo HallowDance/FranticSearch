@@ -96,9 +96,9 @@ Keep domain logic framework-free (unit-testable) and the Flask layer thin.
   - **To restore**: `systemctl --user stop franticsearch`, then `python -m franticsearch restore data/backups/<file>.db.gz` (saves the current DB as `<db>.pre-restore-<ts>`, migrates, runs the ledger check), then `systemctl --user start franticsearch`.
 - **Git**: `origin` is SSH (`git@github.com:HallowDance/FranticSearch.git`); `gh` is logged in as HallowDance.
 
-## Status (2026-10-21)
+## Status (2026-10-27)
 
-- **All six phases are shipped**, PRs #1–#26 merged to `main`. Still a prototype:
+- **All six phases are shipped**, PRs #1–#34 merged to `main`. Still a prototype:
   - #1 phase 1 + Scryfall JSONL sync fix · #2 phase 2 import · #3 reverse-proxy support
   - #4 UI improvements (quick add, paste, move ticked, undo, nav search, sorting, deck groups, mana symbols, image view)
   - #5 plan · #6 phase 2b users & sharing · #7 location filters · #8 phase 3 card search · #9 docs handoff
@@ -109,7 +109,11 @@ Keep domain logic framework-free (unit-testable) and the Flask layer thin.
   - #17 docs · #18 code review + expansion guide (`docs/SCALING.md`; hosting model: self-hosted per friend group, never open sign-up)
   - #19 security fixes (open redirect via `next`, import double-submit, secret-key race) · #20 performance (pull plan, lean deck state, migration 006 `movements.owner_id`, sync change guard, `PRAGMA optimize`)
   - #21 admin Users page (generated passwords, disable/enable; migration 007) · #22 deck where-columns only while short, owned-elsewhere fix · #23 deck Status column · #24 share-link hover images · #25 logging · #26 gunicorn for the live instance
-- 147 tests pass.
-- Verified on real data: Scryfall sync (118,893 printings); Moxfield deck text, both exports (100/100); Moxfield collection CSV (337 rows, 0 unresolved, in "Rares Binder"); phase 4–6 pages via read-only GETs; mark as built (old pull version, then the new acquire version: Millicent 100 short → complete) and restore on copies of the live DB; phone layout via headless Chromium at 390 px.
+  - #27 docs · #28 filters on the collection and deck pages · #29 deck Manage page (settings, sharing, export, delete)
+  - #30 deck edit mode (-1 / +1 / Remove, Put it back) · #31 deck tags (migration 008) · #32 deck page switch line + two columns on desktop · #33 deck status line
+  - #34 wishlist (migration 009; separate from the buy list, got it, sharing; PLAN.md § Wishlist)
+  - Straight to `main` since 2026-10-26 (minor edits): image view one card per line on phones; versioned `style.css` URL (`?v=<mtime>`) so phones pick up CSS changes
+- 159 tests pass.
+- Verified on real data: Scryfall sync (118,893 printings); Moxfield deck text, both exports (100/100); Moxfield collection CSV (337 rows, 0 unresolved, in "Rares Binder"); phase 4–6 pages via read-only GETs; mark as built (old pull version, then the new acquire version: Millicent 100 short → complete) and restore on copies of the live DB; phone layout via headless Chromium at 390 px; wishlist paste, exports and pages on a copy of the live DB (live migrated to schema 9 on 2026-10-27).
 - **Unverified**: `docker compose up --build` itself (no container runtime on the dev machine).
 - **Next**: nothing in progress. Candidates: `docs/SCALING.md` § Prioritised backlog (Stage 1: off-machine backups first, timers, Secure cookie; Stage 3: FOSS packaging, licence) and PLAN.md § What's next (Scryfall query syntax, trades, prices). **CI/CD waits for the first proper release.** Ask the user which.
