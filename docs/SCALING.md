@@ -260,12 +260,12 @@ Infrastructure implications:
 | # | Item | Severity | Effort | Stage | Status |
 |---|---|---|---|---|---|
 | S1 | Safe `next` redirects + tests | High | XS | 1 | done #19 |
-| O1/S3 | Encrypted off-machine backups (to the server over SSH) + restore drill | High | S | 1 |  |
+| O1/S3 | Encrypted off-machine backups (to the server over SSH) + restore drill | High | S | 1 | done (gpg; PLAN.md § Off-machine backups) |
 | S5 | gunicorn instead of the dev server (same port, tunnel unchanged) | High | XS | 1 | done #26 |
 | O6 | Live instance from a separate worktree | Medium | XS | 1 |  |
 | O4/O5 | Sync, migrate and check as timers / `ExecStartPre` | Medium | S | 1 |  |
 | O2/S6 | `/healthz`, failure notifications, Secure cookie, HSTS | Medium | S | 1 |  |
-| P7 | Small user-data backups (option 1) | Medium | S | 1 |  |
+| P7 | Small user-data backups (option 1) | Medium | S | 1 | done (`backup --user-data`) |
 | P1/P2 | Fast pull plan + lean deck state | High at scale | S | 2 | done #20 |
 | P3 | `movements.owner_id` (migration 006) | High at scale | S | 2 | done #20 |
 | P6/P8 | Sync change guard, `PRAGMA optimize`, checkpoint | Medium | XS | 2 | done #20 |

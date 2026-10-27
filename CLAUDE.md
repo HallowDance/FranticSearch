@@ -18,14 +18,15 @@ FranticSearch: self-hosted MTG collection & deck manager where **every physical 
 
 ```sh
 python3 -m venv .venv && . .venv/bin/activate && pip install -e ".[dev,serve]"
-pytest                                   # full suite, ~20 s, no network (159 tests)
+pytest                                   # full suite, ~20 s, no network (166 tests; gpg ones skip without gpg)
 python -m franticsearch serve            # dev server http://127.0.0.1:6602 (auto-syncs Scryfall); live uses gunicorn
 python -m franticsearch serve --no-auto-sync
 python -m franticsearch migrate          # apply pending migrations (serve also does this)
 python -m franticsearch sync [--force]   # Scryfall default_cards → printings (~80 MB .jsonl.gz, ~25 s)
 python -m franticsearch sync --file x.jsonl.gz   # import a local bulk file (.jsonl/.json, gz or not)
 python -m franticsearch check            # stock vs ledger invariant (exit 1 on mismatch)
-python -m franticsearch backup [--dir D] [--keep 14]   # gzipped online backup → data/backups/
+python -m franticsearch backup [--dir D] [--keep 14] [--user-data]   # gzipped online backup → data/backups/ (user data only → data/backups/user-data/)
+python -m franticsearch offsite --key PUB.asc --dest HOST:DIR|DIR [--keep 30]   # user-data backup, gpg-encrypted, copied off the machine
 python -m franticsearch restore FILE [--force]         # stop the server first; saves the current DB
 python -m franticsearch user add NAME [--admin] [--password-stdin]   # first admin adopts ownerless data
 python -m franticsearch user passwd NAME [--password-stdin] | user list
@@ -51,11 +52,12 @@ Env: `FS_DB` (default `data/franticsearch.db`), `FS_AUTO_SYNC` (default `1`), `F
 | `cardtypes.py` | Type line → (supertypes, card types, subtypes) over all faces; cached, returns frozensets |
 | `queries.py` | Read-only queries. Collection / location / history / totals per owner; `shared_stock`; `StockFilter` (location filters, in Python) with subclasses `CollectionFilter` (+ location / kind / not in deck; `collection()` groups, sorts and pages in Python) and `DeckFilter` (+ board / status); `CardSearch` + `search()` (phase 3, SQL); whitelisted `order_by()` for `?sort=` |
 | `exports.py` | Card lists as text: `text`, `moxfield` (deck exports with board headers the importer reads back), `tcgplayer`, `csv`. Used by the buy list, deck export, proxy list. |
-| `backup.py` | `backup()` (SQLite backup API → gzip, prune to N), `list_backups()`, `restore()` (port check, integrity check, saves current DB, migrate + ledger check). Nightly via `deploy/systemd/franticsearch-backup.timer`. |
+| `backup.py` | `backup()` (SQLite backup API → gzip, prune to N; `user_data=True` drops unreferenced printings, rebuilds FTS, clears sync timestamps), `list_backups()`, `restore()` (port check, integrity check, saves current DB, migrate + ledger check; reports `user_data`). Nightly via `deploy/systemd/franticsearch-backup.timer`. |
+| `offsite.py` | `push()`: gpg-encrypt a backup to a public-key file (throwaway keyring), rsync over SSH to `host:dir` (or copy to a local dir), keep the newest N. Nightly via `franticsearch-offsite.timer`. |
 | `logs.py` | `configure()`: one stderr handler for server + CLI (called by `__main__` and `wsgi`, not `create_app`); no timestamps under journald. Logged: logins (failed = WARNING, with IP), admin user actions, migrations applied, sync start/result/failure, 500 tracebacks |
 | `scryfall.py` | Bulk sync: gzipped JSONL from `jsonl_download_uri` (legacy JSON arrays via `ijson`). Upserts, never deletes printings. Stores `face_name`, `set_type`, `digital`, `promo` for default-printing choice. Skips unchanged rows. Failures are logged, recorded in `meta` and raised as `SyncFailed`. |
 | `app.py` + `templates/` + `static/style.css` | Flask, POST-redirect-GET, flash messages. `macros.html`: card links with hover image, tiles, sort headers, view switch, stock actions, filters, sharing box, `place` / `loc_link` (location names, "Decks / <name>"). Routes are grouped by area in `_register_routes`; redirects to `next` go through `safe_next()`; background syncs through `_sync_once()` (never raises, logs); deck routes live under `/decks/<id>/…` plus `/pull`, `/buy`, `/decks/add-card` (deck id in the form). |
-| `tests/` | pytest. `conftest.py`: `conn` fixture creates admin user `alice` (`ALICE` = 1) and imports `fixtures_default_cards.json` (SOL_C21 / SOL_CMM / DELVER / BOLT). `client` is logged in as alice with CSRF off; use `login_as(client, uid)` for others. `test_users.py` covers isolation; `test_decks.py` (phase 4), `test_shortfalls_backup.py` (phases 5–6), `test_wishlist.py`, `test_filters.py`, `test_importer.py`, `test_web.py`, `test_ledger.py`, `test_db.py` (migrations), `test_scryfall.py`, `test_logs.py`. |
+| `tests/` | pytest. `conftest.py`: `conn` fixture creates admin user `alice` (`ALICE` = 1) and imports `fixtures_default_cards.json` (SOL_C21 / SOL_CMM / DELVER / BOLT). `client` is logged in as alice with CSRF off; use `login_as(client, uid)` for others. `test_users.py` covers isolation; `test_decks.py` (phase 4), `test_shortfalls_backup.py` (phases 5–6), `test_offsite.py`, `test_wishlist.py`, `test_filters.py`, `test_importer.py`, `test_web.py`, `test_ledger.py`, `test_db.py` (migrations), `test_scryfall.py`, `test_logs.py`. |
 
 Keep domain logic framework-free (unit-testable) and the Flask layer thin.
 
@@ -85,15 +87,16 @@ Keep domain logic framework-free (unit-testable) and the Flask layer thin.
   - Config backups are in the server user's home: `theorycorner.com.nginx.bak-*`.
 - **Port 16602 is opened on all interfaces** (sshd has `GatewayPorts yes`), but **ufw blocks it** from outside (incoming default deny, IPv6 too). Only nginx reaches it. Keep it that way.
 - **The server and tunnel are systemd user services** (since 2026-10-19): `franticsearch.service` (`FS_PROXY=1 .venv/bin/gunicorn -c deploy/gunicorn.conf.py franticsearch.wsgi:app` in the repo, since 2026-10-21: 1 worker × 8 threads, access log with response times in the journal) and `franticsearch-tunnel.service` (autossh `-R 127.0.0.1:16602:127.0.0.1:6602 theorycorner.com`). Both `Restart=always` and enabled for `default.target`.
-  - Unit files are in `deploy/systemd/`; install with `cp deploy/systemd/* ~/.config/systemd/user/ && systemctl --user daemon-reload && systemctl --user enable --now franticsearch franticsearch-tunnel franticsearch-backup.timer`.
+  - Unit files are in `deploy/systemd/`; install with `cp deploy/systemd/* ~/.config/systemd/user/ && systemctl --user daemon-reload && systemctl --user enable --now franticsearch franticsearch-tunnel franticsearch-backup.timer franticsearch-offsite.timer`.
   - **Restart after code changes**: `systemctl --user restart franticsearch`. Logs: `journalctl --user -u franticsearch -f` (app log + gunicorn access log with response times).
   - **After changing `deploy/systemd/franticsearch.service`**: copy it to `~/.config/systemd/user/`, `systemctl --user daemon-reload`, restart.
   - The service runs whatever is checked out in the repo, so the live site serves the current branch.
   - Lingering is off: the services start at login and stop at logout (`loginctl enable-linger` would keep them running without a session). They're down while the laptop sleeps; autossh reconnects after wake.
   - A 502 on the public URL means one of them is down: `systemctl --user status franticsearch franticsearch-tunnel`.
 - **Live DB**: `data/franticsearch.db` (gitignored, ~240 MB, nearly all of it the card cache), schema 9. Old manual backup from before migration 005: `data/franticsearch.db.bak-pre-2b-20261018`.
-- **Backups**: `franticsearch-backup.timer` runs `python -m franticsearch backup` nightly at 03:30 (catches up after sleep) into `data/backups/` (gitignored), keeping 14 (~57 MB each). The System page lists them. Check with `systemctl --user list-timers franticsearch-backup.timer`. Local only, no off-machine copy. First (manual) backup: 2026-10-19; the first timer run was due the night of 2026-10-20.
+- **Backups**: `franticsearch-backup.timer` runs `python -m franticsearch backup` nightly at 03:30 (catches up after sleep) into `data/backups/` (gitignored), keeping 14 (~57 MB each). The System page lists them. Check with `systemctl --user list-timers franticsearch-backup.timer`. Full backups are local only (off-machine copies are the small user-data ones, below). First (manual) backup: 2026-10-19; the first timer run was due the night of 2026-10-20.
   - **To restore**: `systemctl --user stop franticsearch`, then `python -m franticsearch restore data/backups/<file>.db.gz` (saves the current DB as `<db>.pre-restore-<ts>`, migrates, runs the ledger check), then `systemctl --user start franticsearch`.
+- **Off-machine backups** (since 2026-10-27, PLAN.md § Off-machine backups): `franticsearch-offsite.timer` (03:50, `Persistent=true`) makes a user-data backup (~0.4 MB, no card cache; local copies in `data/backups/user-data/`), encrypts it with gpg to `~/.config/franticsearch/backup-key.asc` (public key only; the private key is kept off the laptop by the user) and rsyncs it to `theorycorner.com:franticsearch-backups`, keeping 30. Check with `systemctl --user status franticsearch-offsite` / `journalctl --user -u franticsearch-offsite`. Restoring one needs the private key, then `restore` + `sync` (steps in PLAN.md).
 - **Git**: `origin` is SSH (`git@github.com:HallowDance/FranticSearch.git`); `gh` is logged in as HallowDance.
 
 ## Status (2026-10-27)
@@ -116,4 +119,4 @@ Keep domain logic framework-free (unit-testable) and the Flask layer thin.
 - 159 tests pass.
 - Verified on real data: Scryfall sync (118,893 printings); Moxfield deck text, both exports (100/100); Moxfield collection CSV (337 rows, 0 unresolved, in "Rares Binder"); phase 4–6 pages via read-only GETs; mark as built (old pull version, then the new acquire version: Millicent 100 short → complete) and restore on copies of the live DB; phone layout via headless Chromium at 390 px; wishlist paste, exports and pages on a copy of the live DB (live migrated to schema 9 on 2026-10-27).
 - **Unverified**: `docker compose up --build` itself (no container runtime on the dev machine).
-- **Next**: nothing in progress. Candidates: `docs/SCALING.md` § Prioritised backlog (Stage 1: off-machine backups first, timers, Secure cookie; Stage 3: FOSS packaging, licence) and PLAN.md § What's next (Scryfall query syntax, trades, prices). **CI/CD waits for the first proper release.** Ask the user which.
+- **Next**: nothing in progress. Candidates: `docs/SCALING.md` § Prioritised backlog (Stage 1: timers, Secure cookie, separate live checkout; Stage 3: FOSS packaging, licence) and PLAN.md § What's next (Scryfall query syntax, trades, prices). **CI/CD waits for the first proper release.** Ask the user which.

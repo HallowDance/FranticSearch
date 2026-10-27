@@ -1,0 +1,11 @@
+[Unit]
+Description=Nightly FranticSearch off-machine backup
+
+[Timer]
+OnCalendar=*-*-* 03:50
+# The laptop is often asleep at night: run at the next wake/boot instead.
+Persistent=true
+RandomizedDelaySec=10min
+
+[Install]
+WantedBy=timers.target

@@ -24,7 +24,7 @@ It's meant to be **self-hosted**: one instance per person or group of friends, w
 - **Wishlist:** cards you want, apart from your decks (any printing or a specific one), added from a card page or a pasted list; "got it" adds the copies to your collection and takes them off the list. Exports like the buy list; can be shared with other users or by link, and other users' card pages show who wants a card.
 - **Import:** Moxfield deck lists (both text exports, optionally marked as built) and collection CSVs, with a queue for lines that need a decision.
 - **Users:** a few accounts, created by the admin on the Users page or with the CLI (leave the password blank for a generated one, shown once), each with a separate collection. Accounts can be disabled and enabled again; a disabled account can't log in and what it shared is hidden. Locations and decks can be shared read-only with other users or by link.
-- **Backups:** gzipped online backups (nightly with the systemd timer) and a checked restore.
+- **Backups:** gzipped online backups (nightly with the systemd timer) and a checked restore; small user-data backups (no card cache), encrypted with gpg and copied off the machine nightly.
 - **Logs:** to stderr (the journal under systemd): logins and failed logins with the client IP, admin actions, syncs, errors; gunicorn's access log with response times.
 
 ## Run locally
@@ -51,7 +51,8 @@ On first start, the app downloads the Scryfall card data in the background (~80 
 | `python -m franticsearch sync [--force]` | update the Scryfall card cache |
 | `python -m franticsearch sync --file default-cards.jsonl.gz` | import a downloaded Scryfall bulk file (`.jsonl`/`.json`, gzipped or not) |
 | `python -m franticsearch check` | verify stock equals the ledger (exit 1 on mismatch) |
-| `python -m franticsearch backup [--dir DIR] [--keep 14]` | gzipped online backup, safe while the server runs; default `<db dir>/backups/` |
+| `python -m franticsearch backup [--dir DIR] [--keep 14] [--user-data]` | gzipped online backup, safe while the server runs; default `<db dir>/backups/`. `--user-data` leaves out the card cache (~0.4 MB; a restore then needs a `sync`) |
+| `python -m franticsearch offsite --key PUB.asc --dest HOST:DIR [--keep 30]` | a user-data backup, encrypted with gpg to a public key and copied over SSH (rsync) or to a local directory; keeps the newest 30 there |
 | `python -m franticsearch restore FILE [--force] [--port 6602]` | replace the database with a backup. Refuses while the server port is in use; keeps the current DB as `*.pre-restore-*`, migrates and checks the ledger |
 | `python -m franticsearch user add NAME [--admin] [--password-stdin]` | create an account (the first admin adopts any data from before accounts existed) |
 | `python -m franticsearch user passwd NAME` · `user list` | set a password, list accounts |
@@ -76,6 +77,7 @@ All commands take `--db PATH`.
 - `franticsearch.service` runs the app with gunicorn from the repo's `.venv` (`pip install -e ".[serve]"`), with `FS_PROXY=1`. Settings (port 6602 on 127.0.0.1, 1 worker × 8 threads, access log) are in `deploy/gunicorn.conf.py`.
 - `franticsearch-tunnel.service` is an autossh reverse tunnel that exposes the app to a reverse proxy on another host. Edit the host and ports.
 - `franticsearch-backup.timer` runs a backup nightly at 03:30, or at the next wake if the machine was asleep. It keeps 14.
+- `franticsearch-offsite.timer` runs `offsite` at 03:50 (edit `--key` / `--dest` in the unit). Key setup and restore steps: PLAN.md § Off-machine backups.
 
 The unit paths assume the repo is at `~/hobbies/dev/python/FranticSearch`; adjust `WorkingDirectory`/`ExecStart` otherwise.
 
@@ -83,7 +85,7 @@ To run it in the foreground the same way: `gunicorn -c deploy/gunicorn.conf.py f
 
 ```sh
 cp deploy/systemd/* ~/.config/systemd/user/ && systemctl --user daemon-reload
-systemctl --user enable --now franticsearch franticsearch-tunnel franticsearch-backup.timer
+systemctl --user enable --now franticsearch franticsearch-tunnel franticsearch-backup.timer franticsearch-offsite.timer
 systemctl --user restart franticsearch        # after updating the code
 journalctl --user -u franticsearch -f         # logs
 ```
@@ -123,13 +125,14 @@ pytest        # ~15 s, no network
 | `franticsearch/importer.py` | Moxfield deck text / collection CSV import, paste a list, the unresolved queue |
 | `franticsearch/exports.py` | card lists as text / Moxfield / TCGplayer / CSV |
 | `franticsearch/backup.py` | backups and restore |
+| `franticsearch/offsite.py` | off-machine backups (gpg + rsync) |
 | `franticsearch/logs.py` | logging setup (`FS_LOG_LEVEL`) |
 | `franticsearch/scryfall.py` | bulk-data sync (`default_cards`) into `printings` |
 | `franticsearch/queries.py` | read-only queries for the UI, location filters, card search |
 | `franticsearch/cardtypes.py` | type line → supertypes / types / subtypes |
 | `franticsearch/app.py`, `templates/`, `static/` | Flask UI, plain HTML forms |
 | `franticsearch/__main__.py`, `wsgi.py` | command line; WSGI entry point (`franticsearch.wsgi:app`) |
-| `deploy/systemd/`, `deploy/gunicorn.conf.py` | user units: app (gunicorn), tunnel, nightly backup; gunicorn settings |
+| `deploy/systemd/`, `deploy/gunicorn.conf.py` | user units: app (gunicorn), tunnel, nightly backup, nightly off-machine backup; gunicorn settings |
 | `Dockerfile`, `compose.yaml` | container build (gunicorn) |
 | `tests/` | pytest suite with a small Scryfall fixture |
 | `PLAN.md`, `CLAUDE.md` | design and roadmap; notes for AI-assisted development |

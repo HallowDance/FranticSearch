@@ -1,0 +1,16 @@
+[Unit]
+Description=FranticSearch off-machine backup (encrypted user data to theorycorner.com)
+Wants=network-online.target
+After=network-online.target franticsearch-backup.service
+# Retry for a while after a failure (e.g. no network right after waking up), then give up until tomorrow.
+StartLimitIntervalSec=3h
+StartLimitBurst=6
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/hobbies/dev/python/FranticSearch
+# The public key only; the private key is kept off this machine (PLAN.md § Off-machine backups).
+ExecStart=%h/hobbies/dev/python/FranticSearch/.venv/bin/python -m franticsearch offsite --key %h/.config/franticsearch/backup-key.asc --dest theorycorner.com:franticsearch-backups --keep 30
+Restart=on-failure
+RestartSec=15min
+Nice=10

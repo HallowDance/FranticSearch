@@ -5,8 +5,11 @@
   sync [--force] [--file PATH]
                    update the Scryfall card cache (or import a local bulk file)
   check            verify stock against the ledger (exit 1 on mismatch)
-  backup [--dir DIR] [--keep N]
-                   gzipped online backup (default: <db dir>/backups, keep 14)
+  backup [--dir DIR] [--keep N] [--user-data]
+                   gzipped online backup (default: <db dir>/backups, keep 14);
+                   --user-data leaves out the card cache (<db dir>/backups/user-data)
+  offsite --key PUBKEY --dest HOST:DIR|DIR [--keep N] [--local-keep N]
+                   user-data backup, encrypted with gpg and copied off the machine
   restore FILE [--force] [--port N]
                    replace the database with a backup (stop the server first)
   user add NAME [--admin] [--password-stdin]
@@ -22,7 +25,7 @@ import getpass
 import os
 import sys
 
-from . import backup, db, ledger, logs, scryfall, users
+from . import backup, db, ledger, logs, offsite, scryfall, users
 
 
 def _db_path(args: argparse.Namespace) -> str:
@@ -50,6 +53,15 @@ def main(argv: list[str] | None = None) -> int:
     p_backup = sub.add_parser("backup", help="write a gzipped backup of the database")
     p_backup.add_argument("--dir", help="backup directory (default: <db dir>/backups)")
     p_backup.add_argument("--keep", type=int, default=backup.KEEP, help="backups to keep (default 14)")
+    p_backup.add_argument("--user-data", action="store_true",
+                          help="leave out the card cache (default dir: <db dir>/backups/user-data)")
+
+    p_off = sub.add_parser("offsite", help="encrypted user-data backup, copied off the machine")
+    p_off.add_argument("--key", required=True, help="gpg public key file to encrypt to")
+    p_off.add_argument("--dest", required=True, help="HOST:DIR (over SSH) or a local directory")
+    p_off.add_argument("--keep", type=int, default=offsite.KEEP, help="copies to keep there (default 30)")
+    p_off.add_argument("--local-keep", type=int, default=backup.KEEP,
+                       help="user-data backups to keep here (default 14)")
 
     p_restore = sub.add_parser("restore", help="replace the database with a backup")
     p_restore.add_argument("file", help="a .db or .db.gz backup")
@@ -80,7 +92,7 @@ def main(argv: list[str] | None = None) -> int:
         app.run(host=args.host, port=args.port)
         return 0
 
-    if args.cmd in ("backup", "restore"):
+    if args.cmd in ("backup", "restore", "offsite"):
         return _backup_cmd(path, args)
 
     conn = db.connect(path)
@@ -117,11 +129,20 @@ def _backup_cmd(path: str, args: argparse.Namespace) -> int:
         if args.cmd == "backup":
             if args.keep < 1:
                 raise backup.BackupError("--keep must be at least 1")
-            out = backup.backup(path, args.dir, args.keep)
+            out = backup.backup(path, args.dir, args.keep, user_data=args.user_data)
             print(f"backup written: {out} ({out.stat().st_size / 1e6:.1f} MB)")
             return 0
+        if args.cmd == "offsite":
+            if args.local_keep < 1:
+                raise backup.BackupError("--local-keep must be at least 1")
+            out = backup.backup(path, keep=args.local_keep, user_data=True)
+            r = offsite.push(out, args.key, args.dest, args.keep)
+            print(f"{r['file']} copied to {r['dest']}"
+                  + (f"; removed {len(r['removed'])} old cop{'y' if len(r['removed']) == 1 else 'ies'}"
+                     if r["removed"] else ""))
+            return 0
         r = backup.restore(path, args.file, force=args.force, port=args.port)
-    except backup.BackupError as e:
+    except (backup.BackupError, offsite.OffsiteError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
     if r["saved"]:
@@ -133,6 +154,9 @@ def _backup_cmd(path: str, args: argparse.Namespace) -> int:
         print(f"WARNING: {len(r['problems'])} stock/ledger mismatch(es); run `check`", file=sys.stderr)
         return 1
     print("OK: stock matches the ledger")
+    if r["user_data"]:
+        print("This backup has no card cache: run `python -m franticsearch sync` "
+              "(the server also syncs on start) to download it again.")
     return 0
 
 

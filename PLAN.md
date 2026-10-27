@@ -184,6 +184,36 @@ Cards a user wants, **separate from decks and their buy list** (the buy list sta
 - **Got it** (on the line's page): pick printing, finish, qty, condition / language and a location (default Unsorted). Adds the copies (`acquire`, note "wishlist") and lowers or removes the line in one transaction. Undo removes the copies but doesn't put the line back.
 - **Sharing as for locations**: private (default) / users (listed on People, `/people/<id>/wishlist`) / link (`/w/<token>`, no login, no card links). Read-only views show qty, card, printing and note, never *Have*. Card pages show "Wanted by" for other users' shared wishlists that want the card.
 
+## Off-machine backups (decided 2026-10-27)
+
+docs/SCALING.md O1 / S3 / P7. The local nightly full backups stay as they are (57 MB each, 14 kept in `data/backups/`).
+- **What leaves the machine: a small user-data backup** (`backup --user-data`, ~0.4 MB gzipped): a full copy minus the printings nothing refers to (stock, movements, deck slots and wishlist lines keep theirs; "any printing" wishes keep all printings of their card). The search index is rebuilt and the sync timestamps cleared, so after a restore the next sync (the server runs one on start, or `python -m franticsearch sync`) downloads the card cache again. Local copies: `data/backups/user-data/`, 14 kept.
+- **Encrypted with gpg to a public key** (`offsite.py`), in a throwaway keyring. Only the public key is on the laptop (`~/.config/franticsearch/backup-key.asc`); the private key is kept elsewhere by the user (password manager / USB stick), protected by a passphrase. Backups hold password hashes and the session secret, so the server only ever gets ciphertext.
+- **Copied to `theorycorner.com:franticsearch-backups`** over SSH (rsync, the same key the tunnel uses; folder 700, files 600); the newest **30** are kept there. `--dest` also takes a local directory (e.g. a USB disk).
+- **Nightly**: `franticsearch-offsite.timer` at 03:50 (after the 03:30 backup, `Persistent=true`), retrying every 15 min after a failure (up to 6 times in 3 h).
+- **Restore drill** done 2026-10-27 with a throwaway key: upload ×3 (pruning), download, decrypt, `restore` into a scratch DB (all user tables equal to the live DB, ledger check OK), `sync` (119,339 printings), pages load.
+
+Creating the key pair (once; run by the user, gpg asks for a passphrase):
+```sh
+mkdir -p ~/.config/franticsearch
+export GNUPGHOME=$(mktemp -d)
+gpg --quick-gen-key "FranticSearch backups" default default never
+gpg --armor --export > ~/.config/franticsearch/backup-key.asc
+gpg --armor --export-secret-keys > ~/franticsearch-backup-PRIVATE.asc   # move it off the laptop, then delete it here
+gpgconf --kill all; rm -rf "$GNUPGHOME"; unset GNUPGHOME
+```
+
+Restoring from the server:
+```sh
+scp theorycorner.com:franticsearch-backups/<file>.db.gz.gpg .
+export GNUPGHOME=$(mktemp -d); gpg --import franticsearch-backup-PRIVATE.asc
+gpg -o <file>.db.gz -d <file>.db.gz.gpg; gpgconf --kill all; rm -rf "$GNUPGHOME"; unset GNUPGHOME
+systemctl --user stop franticsearch
+python -m franticsearch restore <file>.db.gz   # saves the current DB first
+python -m franticsearch sync                   # card cache
+systemctl --user start franticsearch
+```
+
 ## Users & sharing (phase 2b)
 
 Decided 2026-10-18: a few people on one instance, each with a **separate collection**; locations (incl. decks) can be shared.
@@ -309,7 +339,6 @@ Features (from "later"):
 - Card scanning stays out of scope.
 
 Operations:
-- **Off-machine copies of the backups** (only local ones exist; the laptop is a single point of failure). Not chosen in phase 6; still open, and the most important remaining item (docs/SCALING.md § Stage 1: encrypted with `age`, copied to the server over SSH; smaller user-data backups, § P7).
 - `FS_SECURE_COOKIE=1` once the site is only used over HTTPS.
 - `loginctl enable-linger` if the site should run while the owner is logged out (it still stops while the laptop sleeps).
 - Sync, migrate and the ledger check as systemd timers, with failure notifications (docs/SCALING.md § O2, O4, O5).
@@ -320,8 +349,9 @@ Operations:
 Considered and dropped (2026-10-19):
 - A proxy **PDF** (card images 9 per page for printing): the user decided it isn't needed; the text proxy list for proxy printing sites stays.
 
-Features added after the phases:
+Added after the phases:
 - **Wishlist** (2026-10-27, § Wishlist).
+- **Off-machine backups** (2026-10-27, § Off-machine backups).
 
 Smaller ideas noticed while building (not decided):
 - Nested user locations (Shelf / Box / Binder); § Decks in the UI leaves room for it.
